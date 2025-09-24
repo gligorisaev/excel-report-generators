@@ -1,0 +1,1092 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>STLC Report Generator - Enhanced V2</title>
+
+  <!-- XLSX for reading Excel -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <!-- PDF libs -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background:linear-gradient(135deg, #dbeafe 0%, #e0e7ff 100%);
+      min-height:100vh; color:#333;
+    }
+    .container { max-width:1600px; margin:0 auto; padding:24px; }
+
+    .header { text-align:center; margin-bottom:32px; }
+    .header h1 { font-size:2.5rem; font-weight:bold; color:#1f2937; margin-bottom:8px; }
+    .header p { font-size:1.125rem; color:#6b7280; }
+
+    .upload-section { background:#fff; border-radius:12px; box-shadow:0 10px 25px rgba(0,0,0,.1); padding:32px; margin-bottom:32px; }
+    .upload-content { text-align:center; }
+    .upload-icon { margin:0 auto 16px; width:64px; height:64px; color:#3b82f6; }
+    .upload-title { font-size:1.5rem; font-weight:600; color:#1f2937; margin-bottom:16px; }
+    .upload-area { border:2px dashed #93c5fd; border-radius:12px; padding:24px; background:#fafafa; transition:.3s; cursor:pointer; }
+    .upload-area:hover { border-color:#2563eb; background:#f1f5f9; }
+    .upload-icon-inner { font-size:3rem; color:#60a5fa; margin-bottom:16px; }
+    .upload-text { font-size:1.125rem; font-weight:500; color:#374151; margin-bottom:8px; }
+    .upload-subtext { color:#6b7280; font-size:.875rem; }
+    .processing { margin-top:16px; color:#3b82f6; font-size:1.125rem; display:none; }
+    .processing.show { display:block; }
+    .spinner { display:inline-block; width:20px; height:20px; border:3px solid #f3f4f6; border-radius:50%; border-top-color:#3b82f6; animation:spin 1s infinite; margin-right:10px; }
+    @keyframes spin { to { transform:rotate(360deg) } }
+
+    .dashboard { display:none; gap:32px; }
+    .dashboard.show { display:flex; flex-direction:column; }
+
+    .metrics-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:20px; margin-bottom:32px; }
+    @media (min-width:1024px){ .metrics-grid{ grid-template-columns:repeat(5,1fr) } }
+
+    .metric-card { background:#fff; border-radius:12px; padding:20px; box-shadow:0 4px 6px rgba(0,0,0,.1); border-left:4px solid; display:flex; align-items:center; }
+    .metric-card.blue{border-left-color:#3b82f6} .metric-card.red{border-left-color:#ef4444}
+    .metric-card.green{border-left-color:#10b981} .metric-card.yellow{border-left-color:#f59e0b}
+    .metric-card.purple{border-left-color:#8b5cf6} .metric-card.indigo{border-left-color:#6366f1}
+    .metric-card.pink{border-left-color:#ec4899} .metric-card.teal{border-left-color:#14b8a6}
+    .metric-card.orange{border-left-color:#f97316} .metric-card.gray{border-left-color:#6b7280}
+
+    .metric-icon{font-size:1.8rem;margin-right:12px}
+    .metric-icon.blue{color:#3b82f6} .metric-icon.red{color:#ef4444}
+    .metric-icon.green{color:#10b981} .metric-icon.yellow{color:#f59e0b}
+    .metric-icon.purple{color:#8b5cf6} .metric-icon.indigo{color:#6366f1}
+    .metric-icon.pink{color:#ec4899} .metric-icon.teal{color:#14b8a6}
+    .metric-icon.orange{color:#f97316} .metric-icon.gray{color:#6b7280}
+
+    .metric-content h3{font-size:.8rem;font-weight:500;color:#6b7280;margin-bottom:4px}
+    .metric-content p{font-size:1.5rem;font-weight:bold;color:#111827}
+
+    .charts-section{ display:grid; grid-template-columns:1fr; gap:24px; margin-bottom:32px; }
+    @media (min-width:1024px){ .charts-section{ grid-template-columns:1fr 1fr } }
+
+    .chart-card{ background:#fff; border-radius:12px; padding:24px; box-shadow:0 4px 6px rgba(0,0,0,.1); }
+    .chart-card.full-width{ grid-column:1/-1 }
+    .chart-title{ font-size:1.25rem; font-weight:600; color:#374151; margin-bottom:16px; display:flex; align-items:center; }
+    .chart-title-icon{ font-size:1.5rem; margin-right:8px; }
+    .chart-title-icon.blue{color:#3b82f6} .chart-title-icon.green{color:#10b981} 
+    .chart-title-icon.red{color:#ef4444} .chart-title-icon.purple{color:#8b5cf6}
+    .chart-title-icon.orange{color:#f97316} .chart-title-icon.pink{color:#ec4899}
+
+    .summary-section{ background:#fff; border-radius:12px; padding:24px; box-shadow:0 4px 6px rgba(0,0,0,.1); }
+    .summary-header{ display:flex; justify-content:space-between; align-items:center; margin-bottom:24px; flex-wrap:wrap; gap:16px; }
+    .summary-title{ font-size:1.25rem; font-weight:600; color:#374151; display:flex; align-items:center; }
+    .summary-title-icon{ font-size:1.5rem; color:#6366f1; margin-right:8px; }
+    .export-btn{ background:#6366f1; color:#fff; border:none; padding:12px 16px; border-radius:8px; font-size:1rem; cursor:pointer; transition:.3s; display:flex; align-items:center; gap:8px; }
+    .export-btn:hover{ background:#4f46e5; transform:translateY(-1px) }
+
+    .summary-grid{ display:grid; grid-template-columns:repeat(auto-fit, minmax(250px,1fr)); gap:20px; }
+    @media (min-width:1024px){ .summary-grid{ grid-template-columns:repeat(4,1fr) } }
+    .summary-card{ background:#f9fafb; border-radius:8px; padding:16px; }
+    .summary-card h4{ font-size:1rem; font-weight:600; color:#374151; margin-bottom:8px; }
+    .summary-card ul{ list-style:none; font-size:.8rem; color:#6b7280; line-height:1.5; }
+    .summary-card li{ margin-bottom:3px; }
+
+    input[type="file"]{ display:none; }
+    .error-message{ background:#fee2e2; color:#dc2626; padding:16px; border-radius:8px; margin-top:16px; text-align:center; display:none; }
+    .error-message.show{ display:block; }
+
+    .chart-body{ max-height:800px; overflow-y:auto; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <header class="header">
+    <h1>📊 STLC Report Generator v2</h1>
+    <p>Enhanced version with defect severity, priority, story status, effective status by Column S, and timeline analysis</p>
+  </header>
+
+  <div class="upload-section">
+    <div class="upload-content">
+      <div class="upload-icon">📊</div>
+      <h2 class="upload-title">Upload Excel Report</h2>
+      <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+        <div class="upload-icon-inner">📁</div>
+        <div class="upload-text">Click to upload or drag and drop</div>
+        <div class="upload-subtext">Excel files (.xlsx, .xls)</div>
+        <input type="file" id="fileInput" accept=".xlsx,.xls"/>
+      </div>
+      <div id="processing" class="processing">
+        <div class="spinner"></div> Processing your Excel file...
+      </div>
+      <div id="error" class="error-message"></div>
+    </div>
+  </div>
+
+  <div id="dashboard" class="dashboard">
+    <div class="metrics-grid">
+      <div class="metric-card blue">
+        <div class="metric-icon blue">✅</div>
+        <div class="metric-content">
+          <h3>Total Test Cases</h3><p id="totalTests">0</p>
+        </div>
+      </div>
+      <div class="metric-card red">
+        <div class="metric-icon red">🐛</div>
+        <div class="metric-content">
+          <h3>Total Defects</h3><p id="totalDefects">0</p>
+        </div>
+      </div>
+      <div class="metric-card green">
+        <div class="metric-icon green">📈</div>
+        <div class="metric-content">
+          <h3>Pass Rate</h3><p id="passRate">0%</p>
+        </div>
+      </div>
+      <div class="metric-card purple">
+        <div class="metric-icon purple">👥</div>
+        <div class="metric-content">
+          <h3>Stories Covered</h3><p id="storiesCovered">0</p>
+        </div>
+      </div>
+      <div class="metric-card pink">
+        <div class="metric-icon pink">🚨</div>
+        <div class="metric-content">
+          <h3>Critical Defects</h3><p id="criticalDefects">0</p>
+        </div>
+      </div>
+      <div class="metric-card orange">
+        <div class="metric-icon orange">⚠️</div>
+        <div class="metric-content">
+          <h3>High Priority</h3><p id="highPriorityDefects">0</p>
+        </div>
+      </div>
+      <div class="metric-card teal">
+        <div class="metric-icon teal">⚡</div>
+        <div class="metric-content">
+          <h3>Avg Resolution Time</h3><p id="avgResolutionTime">0d</p>
+        </div>
+      </div>
+      <div class="metric-card indigo">
+        <div class="metric-icon indigo">📊</div>
+        <div class="metric-content">
+          <h3>Open Defects</h3><p id="openDefects">0</p>
+        </div>
+      </div>
+      <div class="metric-card gray">
+        <div class="metric-icon gray">📅</div>
+        <div class="metric-content">
+          <h3>Testing Days</h3><p id="testingDays">0</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="charts-section">
+      <div class="chart-card">
+        <div class="chart-title">
+          <span class="chart-title-icon red">🎯</span>
+          Defects by Severity
+        </div>
+        <div id="severityChart" class="chart-body"></div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-title">
+          <span class="chart-title-icon orange">⚡</span>
+          Defects by Priority
+        </div>
+        <div id="priorityChart" class="chart-body"></div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-title">
+          <span class="chart-title-icon purple">📊</span>
+          Story Status Distribution
+        </div>
+        <div id="storyStatusChart" class="chart-body"></div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-title">
+          <span class="chart-title-icon blue">📈</span>
+          Test Execution Status (Effective by Column S)
+        </div>
+        <div id="executionStatusChart" class="chart-body"></div>
+      </div>
+
+      <!-- Separate tester charts -->
+      <div class="chart-card">
+        <div class="chart-title">
+          <span class="chart-title-icon green">🧪</span>
+          Test Execution Load
+        </div>
+        <div id="testerLoadChart" class="chart-body"></div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-title">
+          <span class="chart-title-icon pink">🐛</span>
+          Defects Found by Tester
+        </div>
+        <div id="defectsByTesterChart" class="chart-body"></div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-title">
+          <span class="chart-title-icon pink">⏱️</span>
+          Defect Resolution Timeline
+        </div>
+        <div id="resolutionTimeChart" class="chart-body"></div>
+      </div>
+    </div>
+
+    <div class="summary-section">
+      <div class="summary-header">
+        <div class="summary-title">
+          <span class="summary-title-icon">📋</span>
+          Comprehensive STLC Summary Report
+        </div>
+
+        <button id="copyEmailBtn" class="export-btn" onclick="copyEmailBody()" style="background:#0ea5e9;margin-right:8px;">
+          <span>📧</span> Copy Email Body
+        </button>
+
+        <button id="exportBtn" class="export-btn" onclick="exportReport()">
+          <span>💾</span> Export PDF
+        </button>
+      </div>
+      <div class="summary-grid">
+        <div class="summary-card">
+          <h4>Test Execution Overview</h4>
+          <ul>
+            <li>• Total Test Cases: <span id="summaryTests">0</span></li>
+            <li>• Stories Covered: <span id="summaryStories">0</span></li>
+            <li>• Pass Rate: <span id="summaryPassRate">0%</span></li>
+            <li>• Testing Period: <span id="summaryTestingPeriod">0 days</span></li>
+          </ul>
+        </div>
+        <div class="summary-card">
+          <h4>Defect Quality Analysis</h4>
+          <ul>
+            <li>• Total Defects: <span id="summaryTotalDefects">0</span></li>
+            <li>• Critical Severity: <span id="summaryCritical">0</span></li>
+            <li>• High Priority: <span id="summaryHighPriority">0</span></li>
+            <li>• Open Defects: <span id="summaryOpenDefects">0</span></li>
+            <li>• Avg Resolution: <span id="summaryAvgResolution">0 days</span></li>
+            <li>• Closed → New US Created: <span id="summaryMovedNewUS">0</span></li>
+          </ul>
+        </div>
+        <div class="summary-card">
+          <h4>Story Progress Status</h4>
+          <ul>
+            <li>• UAT in Progress: <span id="summaryUATProgress">0</span></li>
+            <li>• Stories with Defects: <span id="summaryStoriesWithDefects">0</span></li>
+            <li>• Quality Score: <span id="summaryQuality">0%</span></li>
+          </ul>
+        </div>
+        <div class="summary-card">
+          <h4>Team Performance</h4>
+          <ul>
+            <li>• Active Testers: <span id="summaryTesters">0</span></li>
+            <li>• Most Active: <span id="summaryTopTester">N/A</span></li>
+            <li>• Defect Creators: <span id="summaryDefectCreators">0</span></li>
+            <li>• Top Defect Creator: <span id="summaryTopDefectCreator">N/A</span></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let globalMetrics = null;
+let fileName = '';
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('fileInput').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (file) processFile(file);
+  });
+});
+
+function showError(message){
+  const errorDiv = document.getElementById('error');
+  errorDiv.textContent = message;
+  errorDiv.classList.add('show');
+}
+function hideError(){ document.getElementById('error').classList.remove('show'); }
+function showProcessing(){ document.getElementById('processing').classList.add('show'); hideError(); }
+function hideProcessing(){ document.getElementById('processing').classList.remove('show'); }
+
+function processFile(file){
+  showProcessing();
+  fileName = file.name;
+
+  const reader = new FileReader();
+  reader.onload = function(e){
+    try{
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, { type:'array' });
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, { header:1, defval:'', raw:false });
+
+      const processedData = processEnhancedExcelData(jsonData);
+      if(processedData.length === 0){
+        throw new Error('No valid data found. Please check your Excel file format.');
+      }
+
+      const metrics = calculateEnhancedMetrics(processedData);
+      globalMetrics = metrics;
+
+      updateEnhancedDashboard(metrics);
+      showDashboard();
+      hideProcessing();
+    }catch(error){
+      console.error('Error:', error);
+      hideProcessing();
+      showError('Error processing file: ' + error.message);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+/* =========================
+   DYNAMIC ANCHOR HELPERS
+   ========================= */
+function findDataStartIndex(jsonData){
+  // 1) Prefer the "Story:" marker in column B (case-insensitive)
+  for (let i = 0; i < jsonData.length; i++){
+    const row = jsonData[i] || [];
+    const colB = (row[1] || '').toString().trim();
+    if (/^story\s*:/.test(colB)) return i; // anchor row (e.g., B2)
+  }
+  // 2) Fallback: try to find a header-like row for test cases
+  for (let i = 0; i < jsonData.length; i++){
+    const r = jsonData[i] || [];
+    const c4 = (r[4] || '').toString().toLowerCase();
+    const c5 = (r[5] || '').toString().toLowerCase();
+    if (c4.includes('test case') && c5.includes('test case')) return i + 1; // start after header
+  }
+  // 3) Final fallback: old fixed start
+  return 16; // row index 16 == Excel row 17
+}
+
+function processEnhancedExcelData(jsonData){
+  const dataRows = [];
+
+  const startIdx = findDataStartIndex(jsonData);
+
+  for(let i = startIdx; i < jsonData.length; i++){
+    const row = jsonData[i];
+    if(!row || row.length === 0 || !row.some(cell => cell && cell.toString().trim() !== '')) continue;
+
+    // Only accept rows that look like test rows: Story(B), TestCase#(E), TestCaseName(F)
+    if(row[1] && row[4] && row[5]){
+      const testExecution = {
+        story: row[1].toString().trim(),
+        storyStatus: (row[3] || '').toString().trim(),
+        testCaseNumber: row[4].toString().trim(),
+        testCaseName: row[5].toString().trim(),
+        executionInitiated: (row[6] || '').toString().trim(),
+        testStatus: (row[7] || 'Unknown').toString().trim(),
+        executionId: (row[8] || '').toString().trim(),
+        executionStatus: (row[9] || '').toString().trim(),
+        assignedTo: (row[10] || '').toString().trim(),
+        datePassed: (row[11] || '').toString().trim(),
+        defectNumber: (row[12] || '').toString().trim(),
+        defectName: (row[13] || '').toString().trim(),
+        defectCreatedBy: (row[14] || '').toString().trim(),
+        defectCreatedDate: (row[15] || '').toString().trim(),
+        severity: (row[16] || '').toString().trim(),
+        priority: (row[17] || '').toString().trim(),
+        defectStatus: (row[18] || '').toString().trim(), // Column S
+        closedDate: (row[19] || '').toString().trim()
+      };
+      dataRows.push(testExecution);
+    }
+  }
+  console.log(`Anchor index: ${startIdx}. Processed ${dataRows.length} rows.`);
+  return dataRows;
+}
+
+/* =========================
+   STATUS & METRICS
+   ========================= */
+function getEffectiveTestStatus(row){
+  const rawStatus = (row.testStatus || '').trim();
+  const defectRaw = (row.defectStatus || '');
+  const defect = defectRaw.toLowerCase();
+  const initiated = (row.executionInitiated || '').toLowerCase() === 'yes';
+  const hasExecId = !!(row.executionId && row.executionId.trim() !== '');
+  const hasPassDate = !!(row.datePassed && row.datePassed.trim() !== '');
+
+  const isClosedNewUS = defect.includes('closed') && defect.includes('new us');
+  if (isClosedNewUS) return 'Moved to New US';
+
+  const isOpenish = defect.includes('open') || defect.includes('new') ||
+                    defect.includes('reopen') || defect.includes('re-open') ||
+                    defect.includes('progress') || defect.includes('investig');
+  if (isOpenish) return 'Failed';
+
+  if (rawStatus) {
+    const rs = rawStatus.toLowerCase();
+    if (rs.includes('passed')) return 'Passed';
+    if (rs.includes('failed')) return 'Failed';
+    if (rs.includes('blocked')) return 'Blocked';
+    if (rs.includes('in progress')) return 'In Progress';
+    if (rs.includes('not run') || rs.includes('not executed')) return 'Not Run';
+    if (rs.includes('skipped')) return 'Skipped';
+  }
+
+  if (hasPassDate) return 'Passed';
+  if (initiated || hasExecId) return 'In Progress';
+  return 'Not Run';
+}
+
+function calculateEnhancedMetrics(dataRows){
+  const metrics = {
+    totalTestCases: dataRows.length,
+    uniqueStories: [...new Set(dataRows.map(r => r.story).filter(s => s))].length,
+    totalDefects: dataRows.filter(r => r.defectNumber && r.defectNumber.trim() !== '').length,
+    severityDistribution: {},
+    priorityDistribution: {},
+    storyStatusDistribution: {},
+    testStatusDistribution: {},
+    effectiveTestStatusDistribution: {},
+    defectStatusDistribution: {},
+    assigneeDistribution: {},
+    defectsByTester: {},
+    defectCreatorDistribution: {},
+    testingDates: [],
+    resolutionTimes: [],
+    storiesWithDefects: new Set(),
+    movedNewUSCount: 0,
+  };
+
+  dataRows.forEach(row => {
+    if(row.severity) metrics.severityDistribution[row.severity] = (metrics.severityDistribution[row.severity] || 0) + 1;
+    if(row.priority) metrics.priorityDistribution[row.priority] = (metrics.priorityDistribution[row.priority] || 0) + 1;
+    if(row.storyStatus) metrics.storyStatusDistribution[row.storyStatus] = (metrics.storyStatusDistribution[row.storyStatus] || 0) + 1;
+    if(row.testStatus) metrics.testStatusDistribution[row.testStatus] = (metrics.testStatusDistribution[row.testStatus] || 0) + 1;
+    if(row.defectStatus) metrics.defectStatusDistribution[row.defectStatus] = (metrics.defectStatusDistribution[row.defectStatus] || 0) + 1;
+
+    const eff = getEffectiveTestStatus(row);
+    metrics.effectiveTestStatusDistribution[eff] = (metrics.effectiveTestStatusDistribution[eff] || 0) + 1;
+
+    if ((row.defectStatus || '').toLowerCase().includes('closed') &&
+        (row.defectStatus || '').toLowerCase().includes('new us')) {
+      metrics.movedNewUSCount += 1;
+    }
+
+    // Test load by assignee (only if row shows execution intent)
+    const hasExecutionSignal =
+      (row.executionInitiated && row.executionInitiated.toLowerCase() === 'yes') ||
+      (row.executionId && row.executionId.trim() !== '') ||
+      (row.testStatus && row.testStatus.toLowerCase() !== 'unknown');
+    if (row.assignedTo && hasExecutionSignal) {
+      metrics.assigneeDistribution[row.assignedTo] = (metrics.assigneeDistribution[row.assignedTo] || 0) + 1;
+    }
+    
+    // Defect-by-tester & resolution times
+    if(row.defectNumber && row.defectNumber.trim() !== ''){
+      metrics.storiesWithDefects.add(row.story);
+      if(row.assignedTo) metrics.defectsByTester[row.assignedTo] = (metrics.defectsByTester[row.assignedTo] || 0) + 1;
+      if(row.defectCreatedBy) metrics.defectCreatorDistribution[row.defectCreatedBy] = (metrics.defectCreatorDistribution[row.defectCreatedBy] || 0) + 1;
+      
+      if(row.defectCreatedDate && row.closedDate){
+        const created = parseDate(row.defectCreatedDate);
+        const closed = parseDate(row.closedDate);
+        if(created && closed && closed >= created){
+          const resolutionDays = Math.ceil((closed - created) / (1000 * 60 * 60 * 24));
+          metrics.resolutionTimes.push(resolutionDays);
+        }
+      }
+    }
+    
+    if(row.datePassed){
+      const passDate = parseDate(row.datePassed);
+      if(passDate) metrics.testingDates.push(passDate);
+    }
+  });
+
+  const passedEff = metrics.effectiveTestStatusDistribution['Passed'] || 0;
+  const criticalDefects = metrics.severityDistribution['Critical'] || 0;
+  const highPriorityDefects = metrics.priorityDistribution['High'] || 0;
+  
+  const openDefects = Object.keys(metrics.defectStatusDistribution).reduce((count, status) => {
+    const statusLower = status.toLowerCase();
+    return count + (statusLower.includes('open') || 
+                   statusLower.includes('progress') || 
+                   statusLower.includes('new') ||
+                   (!statusLower.includes('closed') && !statusLower.includes('resolved')) ? 
+                   metrics.defectStatusDistribution[status] : 0);
+  }, 0);
+
+  const avgResolutionTime = metrics.resolutionTimes.length > 0 
+    ? Math.round(metrics.resolutionTimes.reduce((a, b) => a + b, 0) / metrics.resolutionTimes.length)
+    : 0;
+
+  const testingPeriod = metrics.testingDates.length > 0
+    ? Math.ceil((Math.max(...metrics.testingDates) - Math.min(...metrics.testingDates)) / (1000 * 60 * 60 * 24)) + 1
+    : 0;
+
+  return {
+    ...metrics,
+    storiesWithDefects: metrics.storiesWithDefects.size,
+    passRate: (((passedEff / metrics.totalTestCases) * 100) || 0).toFixed(1),
+    defectRate: (((metrics.totalDefects / metrics.totalTestCases) * 100) || 0).toFixed(1),
+    criticalDefects,
+    highPriorityDefects,
+    openDefects,
+    avgResolutionTime,
+    testingDays: testingPeriod
+  };
+}
+
+function parseDate(dateStr){
+  if(!dateStr || dateStr.trim() === '') return null;
+  const parts = dateStr.split('.');
+  if(parts.length === 3){
+    const day = parseInt(parts[0]);
+    const month = parseInt(parts[1]) - 1;
+    const year = parseInt(parts[2]);
+    return new Date(year, month, day);
+  }
+  const parsed = new Date(dateStr);
+  return isNaN(parsed.getTime()) ? null : parsed;
+}
+
+/* =========================
+   DASHBOARD UI
+   ========================= */
+function updateEnhancedDashboard(metrics){
+  // Cards
+  document.getElementById('totalTests').textContent = metrics.totalTestCases;
+  document.getElementById('totalDefects').textContent = metrics.totalDefects;
+  document.getElementById('passRate').textContent = metrics.passRate + '%';
+  document.getElementById('storiesCovered').textContent = metrics.uniqueStories;
+  document.getElementById('criticalDefects').textContent = metrics.criticalDefects;
+  document.getElementById('highPriorityDefects').textContent = metrics.highPriorityDefects;
+  document.getElementById('avgResolutionTime').textContent = metrics.avgResolutionTime + 'd';
+  document.getElementById('openDefects').textContent = metrics.openDefects;
+  document.getElementById('testingDays').textContent = metrics.testingDays;
+
+  // Summary
+  document.getElementById('summaryTests').textContent = metrics.totalTestCases;
+  document.getElementById('summaryStories').textContent = metrics.uniqueStories;
+  document.getElementById('summaryPassRate').textContent = metrics.passRate + '%';
+  document.getElementById('summaryTestingPeriod').textContent = metrics.testingDays + ' days';
+  document.getElementById('summaryTotalDefects').textContent = metrics.totalDefects;
+  document.getElementById('summaryCritical').textContent = metrics.criticalDefects;
+  document.getElementById('summaryHighPriority').textContent = metrics.highPriorityDefects;
+  document.getElementById('summaryOpenDefects').textContent = metrics.openDefects;
+  document.getElementById('summaryAvgResolution').textContent = metrics.avgResolutionTime + ' days';
+  document.getElementById('summaryMovedNewUS').textContent = metrics.movedNewUSCount || 0;
+
+  const uatProgress = metrics.storyStatusDistribution['UAT In Progress'] || 0;
+  document.getElementById('summaryUATProgress').textContent = uatProgress;
+  document.getElementById('summaryStoriesWithDefects').textContent = metrics.storiesWithDefects;
+  document.getElementById('summaryQuality').textContent = (100 - parseFloat(metrics.defectRate)).toFixed(1) + '%';
+
+  document.getElementById('summaryTesters').textContent = Object.keys(metrics.assigneeDistribution).length;
+  const topTester = Object.entries(metrics.assigneeDistribution).sort((a,b) => b[1] - a[1])[0];
+  document.getElementById('summaryTopTester').textContent = topTester ? topTester[0] : 'N/A';
+  
+  document.getElementById('summaryDefectCreators').textContent = Object.keys(metrics.defectCreatorDistribution).length;
+  const topDefectCreator = Object.entries(metrics.defectCreatorDistribution).sort((a,b) => b[1] - a[1])[0];
+  document.getElementById('summaryTopDefectCreator').textContent = topDefectCreator ? `${topDefectCreator[0]} (${topDefectCreator[1]})` : 'N/A';
+
+  // Charts
+  createSeverityChart(metrics.severityDistribution);
+  createPriorityChart(metrics.priorityDistribution);
+  createStoryStatusChart(metrics.storyStatusDistribution);
+  createExecutionStatusChart(metrics.effectiveTestStatusDistribution);
+  createTesterLoadChart(metrics.assigneeDistribution);
+  createDefectsByTesterChart(metrics.defectsByTester);
+  createResolutionTimeChart(metrics.resolutionTimes);
+}
+
+/* Simple bar charts (DOM-based) */
+function createSeverityChart(data){
+  const chart = document.getElementById('severityChart');
+  const colors = { 'Critical': '#dc2626', 'High': '#ea580c', 'Medium': '#ca8a04', 'Low': '#16a34a' };
+  let html = '<div style="padding:20px;">';
+  const entries = Object.entries(data);
+  const maxVal = entries.length ? Math.max(...entries.map(e => e[1])) : 0;
+  entries.sort((a,b)=>b[1]-a[1]).forEach(([severity, count])=>{
+    const pct = maxVal ? (count / maxVal) * 100 : 0;
+    const color = colors[severity] || '#6b7280';
+    html += `
+      <div style="margin-bottom:16px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+          <span style="font-weight:600;color:${color};">${severity}</span>
+          <span style="font-weight:bold;color:#374151;">${count}</span>
+        </div>
+        <div style="background:#f3f4f6;border-radius:6px;height:12px;">
+          <div style="background:${color};height:100%;width:${pct}%;border-radius:6px;transition:width .5s ease;"></div>
+        </div>
+      </div>`;
+  });
+  html += '</div>';
+  chart.innerHTML = html;
+}
+
+function createPriorityChart(data){
+  const chart = document.getElementById('priorityChart');
+  const colors = { 'Critical': '#dc2626', 'High': '#ea580c', 'Medium': '#ca8a04', 'Low': '#16a34a' };
+  let html = '<div style="padding:20px;">';
+  const entries = Object.entries(data);
+  const maxVal = entries.length ? Math.max(...entries.map(e => e[1])) : 0;
+  entries.sort((a,b)=>b[1]-a[1]).forEach(([priority, count])=>{
+    const pct = maxVal ? (count / maxVal) * 100 : 0;
+    const color = colors[priority] || '#6b7280';
+    html += `
+      <div style="margin-bottom:16px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+          <span style="font-weight:600;color:${color};">${priority}</span>
+          <span style="font-weight:bold;color:#374151;">${count}</span>
+        </div>
+        <div style="background:#f3f4f6;border-radius:6px;height:12px;">
+          <div style="background:${color};height:100%;width:${pct}%;border-radius:6px;transition:width .5s ease;"></div>
+        </div>
+      </div>`;
+  });
+  html += '</div>';
+  chart.innerHTML = html;
+}
+
+function createStoryStatusChart(data){
+  const chart = document.getElementById('storyStatusChart');
+  let html = '<div style="padding:20px;">';
+  const entries = Object.entries(data);
+  const maxVal = entries.length ? Math.max(...entries.map(e => e[1])) : 0;
+  entries.sort((a,b)=>b[1]-a[1]).forEach(([status, count])=>{
+    const pct = maxVal ? (count / maxVal) * 100 : 0;
+    const color = status.includes('Progress') ? '#8b5cf6' : '#10b981';
+    html += `
+      <div style="margin-bottom:16px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+          <span style="font-weight:500;color:#374151;">${status}</span>
+          <span style="font-weight:bold;color:#6b7280;">${count}</span>
+        </div>
+        <div style="background:#f3f4f6;border-radius:6px;height:12px;">
+          <div style="background:${color};height:100%;width:${pct}%;border-radius:6px;transition:width .5s ease;"></div>
+        </div>
+      </div>`;
+  });
+  html += '</div>';
+  chart.innerHTML = html;
+}
+
+function createExecutionStatusChart(effectiveData){
+  const chart = document.getElementById('executionStatusChart');
+  const colors = {
+    'Passed':'#10b981',
+    'Failed':'#ef4444',
+    'Blocked':'#f59e0b',
+    'In Progress':'#3b82f6',
+    'Not Run':'#6b7280',
+    'Skipped':'#94a3b8',
+    'Moved to New US':'#6366f1'
+  };
+
+  const entries = Object.entries(effectiveData);
+  const total = entries.reduce((a,[,v])=>a+v,0);
+  let html = '<div style="padding:20px;">';
+
+  entries.sort((a,b)=>b[1]-a[1]).forEach(([status, count])=>{
+    const pct = total ? ((count / total) * 100).toFixed(1) : 0;
+    const color = colors[status] || '#6b7280';
+    html += `
+      <div style="margin-bottom:16px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+          <span style="font-weight:600;color:${color};">${status}</span>
+          <span style="font-weight:bold;color:#374151;">${count} (${pct}%)</span>
+        </div>
+        <div style="background:#e5e7eb;border-radius:4px;height:8px;">
+          <div style="background:${color};height:100%;width:${pct}%;border-radius:4px;transition:width .5s ease;"></div>
+        </div>
+      </div>`;
+  });
+
+  html += '</div>';
+  chart.innerHTML = html;
+}
+
+function createTesterLoadChart(testLoad){
+  const chart = document.getElementById('testerLoadChart');
+  const entries = Object.entries(testLoad).sort((a,b)=>b[1]-a[1]);
+
+  if(entries.length === 0){
+    chart.innerHTML = '<div style="padding:20px;text-align:center;color:#6b7280;">No assigned executions</div>';
+    return;
+  }
+
+  const maxVal = Math.max(...entries.map(e=>e[1]));
+  let html = '<div style="padding:20px;">';
+  entries.forEach(([tester, count])=>{
+    const pct = maxVal ? (count / maxVal) * 100 : 0;
+    const shortName = tester.length > 28 ? tester.slice(0,28)+'…' : tester;
+    html += `
+      <div style="margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:.9rem;">
+          <span title="${tester}">${shortName}</span><span>${count}</span>
+        </div>
+        <div style="background:#e5e7eb;border-radius:4px;height:10px;">
+          <div style="background:#10b981;height:100%;width:${pct}%;border-radius:4px;"></div>
+        </div>
+      </div>`;
+  });
+  html += '</div>';
+  chart.innerHTML = html;
+}
+
+function createDefectsByTesterChart(defectCount){
+  const chart = document.getElementById('defectsByTesterChart');
+  const entries = Object.entries(defectCount).sort((a,b)=>b[1]-a[1]);
+
+  if(entries.length === 0){
+    chart.innerHTML = '<div style="padding:20px;text-align:center;color:#6b7280;">No defects tracked by tester</div>';
+    return;
+  }
+
+  const maxVal = Math.max(...entries.map(e=>e[1]));
+  let html = '<div style="padding:20px;">';
+  entries.forEach(([tester, count])=>{
+    const pct = maxVal ? (count / maxVal) * 100 : 0;
+    const shortName = tester.length > 28 ? tester.slice(0,28)+'…' : tester;
+    html += `
+      <div style="margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:.9rem;">
+          <span title="${tester}">${shortName}</span><span>${count}</span>
+        </div>
+        <div style="background:#fee2e2;border-radius:4px;height:10px;">
+          <div style="background:#ef4444;height:100%;width:${pct}%;border-radius:4px;"></div>
+        </div>
+      </div>`;
+  });
+  html += '</div>';
+  chart.innerHTML = html;
+}
+
+function createResolutionTimeChart(resolutionTimes){
+  const chart = document.getElementById('resolutionTimeChart');
+  
+  if(!resolutionTimes.length){
+    chart.innerHTML = '<div style="padding:20px;text-align:center;color:#6b7280;">No resolution time data available</div>';
+    return;
+  }
+  
+  const buckets = { '0-1 days': 0, '2-3 days': 0, '4-7 days': 0, '8-14 days': 0, '15+ days': 0 };
+  
+  resolutionTimes.forEach(days => {
+    if(days <= 1) buckets['0-1 days']++;
+    else if(days <= 3) buckets['2-3 days']++;
+    else if(days <= 7) buckets['4-7 days']++;
+    else if(days <= 14) buckets['8-14 days']++;
+    else buckets['15+ days']++;
+  });
+  
+  let html = '<div style="padding:20px;">';
+  const maxCount = Math.max(...Object.values(buckets));
+  
+  Object.entries(buckets).forEach(([bucket, count]) => {
+    const pct = maxCount ? (count / maxCount) * 100 : 0;
+    const color = bucket === '0-1 days' ? '#10b981' : 
+                 bucket === '2-3 days' ? '#059669' :
+                 bucket === '4-7 days' ? '#f59e0b' :
+                 bucket === '8-14 days' ? '#ea580c' : '#dc2626';
+    
+    html += `
+      <div style="margin-bottom:16px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+          <span style="font-weight:500;color:#374151;">${bucket}</span>
+          <span style="font-weight:bold;color:${color};">${count}</span>
+        </div>
+        <div style="background:#f3f4f6;border-radius:6px;height:12px;">
+          <div style="background:${color};height:100%;width:${pct}%;border-radius:6px;transition:width .5s ease;"></div>
+        </div>
+      </div>
+    `;
+  });
+  
+  html += '</div>';
+  chart.innerHTML = html;
+}
+
+function showDashboard(){
+  document.getElementById('dashboard').classList.add('show');
+  document.getElementById('dashboard').scrollIntoView({ behavior:'smooth' });
+}
+
+/* =========================
+   EXPORT & EMAIL
+   ========================= */
+async function exportReport() {
+  if (!globalMetrics) return;
+
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+  const margin = 10;
+  const pageWidth = 210;
+  const pageHeight = 297;
+  const contentWidth = pageWidth - 2 * margin;
+  const contentHeight = pageHeight - 2 * margin;
+
+  const toHide = document.querySelectorAll('.upload-section, #exportBtn, #copyEmailBtn');
+  const restore = [];
+  toHide.forEach(el => {
+    restore.push({ el, display: el.style.display });
+    el.style.display = 'none';
+  });
+
+  const targetEl = document.querySelector('.container');
+
+  const canvas = await html2canvas(targetEl, {
+    scale: Math.max(2, window.devicePixelRatio || 1),
+    backgroundColor: '#ffffff',
+    useCORS: true,
+    windowWidth: document.documentElement.scrollWidth,
+    windowHeight: document.documentElement.scrollHeight
+  });
+
+  restore.forEach(r => { r.el.style.display = r.display || ''; });
+
+  const imgRatio = canvas.width / canvas.height;
+  let targetW = contentWidth;
+  let targetH = targetW / imgRatio;
+  if (targetH > contentHeight) {
+    targetH = contentHeight;
+    targetW = targetH * imgRatio;
+  }
+  const x = margin + (contentWidth - targetW) / 2;
+  const y = margin + (contentHeight - targetH) / 2;
+
+  pdf.addImage(canvas.toDataURL('image/png'), 'PNG', x, y, targetW, targetH);
+  pdf.save(`Enhanced_STLC_Report_${new Date().toISOString().slice(0,10)}.pdf`);
+}
+
+async function copyEmailBody() {
+  try {
+    if (!globalMetrics) {
+      alert('Please load an Excel file first.');
+      return;
+    }
+
+    const chartIds = [
+      'executionStatusChart',
+      'severityChart',
+      'priorityChart',
+      'storyStatusChart',
+      'testerLoadChart',
+      'defectsByTesterChart',
+      'resolutionTimeChart'
+    ];
+
+    const chartImgs = [];
+    for (const id of chartIds) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      const canvas = await html2canvas(el, {
+        backgroundColor: '#ffffff',
+        scale: Math.max(2, window.devicePixelRatio || 1)
+      });
+      const dataUrl = canvas.toDataURL('image/png');
+      chartImgs.push({ id, dataUrl });
+    }
+
+    const html = buildEmailHTML(globalMetrics, chartImgs);
+
+    if (navigator.clipboard && window.ClipboardItem) {
+      const blob = new Blob([html], { type: "text/html" });
+      const plain = new Blob([stripHTML(html)], { type: "text/plain" });
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/html": blob,
+          "text/plain": plain
+        })
+      ]);
+      alert('Email body copied! Paste into your mail client (Ctrl/Cmd + V).');
+      return;
+    }
+
+    const win = window.open('', '_blank');
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+    alert('Email content opened in a new tab. Select all → copy → paste into your mail client.');
+  } catch (err) {
+    console.error('Copy email failed:', err);
+    alert('Could not copy email body. See console for details.');
+  }
+}
+
+/* Backtick-safe email builder */
+function buildEmailHTML(m, chartImgs) {
+  const safe = s => (s == null ? '' : String(s));
+  const qualityScore = (100 - parseFloat(m.defectRate || 0)).toFixed(1) + '%';
+
+  const activeTesters = Object.keys(m.assigneeDistribution || {}).length;
+  const topTesterEntry = Object.entries(m.assigneeDistribution || {}).sort((a,b)=>b[1]-a[1])[0];
+  const mostActive = topTesterEntry ? topTesterEntry[0] : 'N/A';
+
+  const defectCreatorsCount = Object.keys(m.defectCreatorDistribution || {}).length;
+  const topDefCreatorEntry = Object.entries(m.defectCreatorDistribution || {}).sort((a,b)=>b[1]-a[1])[0];
+  const topDefCreator = topDefCreatorEntry ? `${topDefCreatorEntry[0]} (${topDefCreatorEntry[1]})` : 'N/A';
+
+  /* === Control sizes here === */
+  const emailWidth = 1280;                               // full email width
+  const chartsRowWidth = Math.min(1200, emailWidth - 80);// pair-of-charts row width
+  const chartCellWidth = Math.floor((chartsRowWidth - 16) / 2);
+  const labelPct = 62;
+
+  const metricRow = (label, value) => [
+    '<tr>',
+      '<td style="padding:6px 10px;font-size:13px;line-height:1.3;border:1px solid #e5e7eb;background:#f9fafb;',
+      'width:', labelPct, '%;max-width:', labelPct, '%;word-break:break-word;vertical-align:top;">', label, '</td>',
+      '<td style="padding:6px 10px;font-size:13px;line-height:1.3;border:1px solid #e5e7eb;text-align:right;',
+      'width:', (100 - labelPct), '%;max-width:', (100 - labelPct),
+      '%;white-space:nowrap;vertical-align:top;"><b>', value, '</b></td>',
+    '</tr>'
+  ].join('');
+
+  const tableWrap = rowsArr => [
+    '<table cellpadding="0" cellspacing="0" width="100%" ',
+    'style="border-collapse:collapse;table-layout:fixed;width:100%;">',
+      rowsArr.join(''),
+    '</table>'
+  ].join('');
+
+  // Blocks
+  const overviewRows = [
+    metricRow('Total Test Cases', safe(m.totalTestCases)),
+    metricRow('Stories Covered', safe(m.uniqueStories)),
+    metricRow('Pass Rate (Effective)', safe(m.passRate) + '%'),
+    metricRow('Testing Days', safe(m.testingDays))
+  ];
+
+  const defectsRows = [
+    metricRow('Total Defects', safe(m.totalDefects)),
+    metricRow('Critical Defects', safe(m.criticalDefects)),
+    metricRow('High Priority', safe(m.highPriorityDefects)),
+    metricRow('Open Defects', safe(m.openDefects)),
+    metricRow('Avg Resolution Time', safe(m.avgResolutionTime) + ' days'),
+    metricRow('Closed → New US Created', safe(m.movedNewUSCount || 0))
+  ];
+
+  const storyRows = [
+    metricRow('UAT in Progress',
+      (m.storyStatusDistribution && (m.storyStatusDistribution['UAT In Progress'] || 0)) || 0),
+    metricRow('Stories with Defects', safe(m.storiesWithDefects)),
+    metricRow('Quality Score', qualityScore)
+  ];
+
+  const teamRows = [
+    metricRow('Active Testers', activeTesters),
+    metricRow('Most Active', mostActive),
+    metricRow('Defect Creators', defectCreatorsCount),
+    metricRow('Top Defect Creator', topDefCreator)
+  ];
+
+  const colBlock = (title, innerHtml) => [
+    '<td valign="top" style="padding:8px;">',
+      '<div style="font-weight:700;font-size:13px;margin-bottom:6px;color:#111827;">', title, '</div>',
+      innerHtml,
+    '</td>'
+  ].join('');
+
+  const fourColRow = [
+    '<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="table-layout:fixed;width:100%;">',
+      '<tr>',
+        colBlock('Overview', tableWrap(overviewRows)),
+        colBlock('Defects', tableWrap(defectsRows)),
+        colBlock('Story Progress Status', tableWrap(storyRows)),
+        colBlock('Team Performance', tableWrap(teamRows)),
+      '</tr>',
+    '</table>'
+  ].join('');
+
+  // Charts (2 per row)
+  const titles = {
+    executionStatusChart: 'Test Execution Status (Effective by Column S)',
+    severityChart: 'Defects by Severity',
+    priorityChart: 'Defects by Priority',
+    storyStatusChart: 'Story Status Distribution',
+    testerLoadChart: 'Test Execution Load',
+    defectsByTesterChart: 'Defects Found by Tester',
+    resolutionTimeChart: 'Defect Resolution Timeline'
+  };
+
+  const imgTag = (src, alt) => [
+    '<img src="', src, '" alt="', (alt || 'Chart image'),
+    '" width="', chartCellWidth, '" style="display:block;width:', chartCellWidth,
+    'px;height:auto;border-radius:6px;margin:6px 0;border:1px solid #e5e7eb;" />'
+  ].join('');
+
+  const chartsHTML = [
+    '<table role="presentation" cellpadding="0" cellspacing="0" width="', chartsRowWidth,
+    '" style="table-layout:fixed;width:', chartsRowWidth, 'px;margin:0 auto;"><tbody>'
+  ];
+  for (let i = 0; i < chartImgs.length; i += 2) {
+    const left = chartImgs[i];
+    const right = chartImgs[i + 1];
+    chartsHTML.push('<tr>');
+
+    chartsHTML.push(
+      '<td valign="top" style="padding:8px;width:', chartCellWidth, 'px;max-width:', chartCellWidth, 'px;">',
+      left
+        ? '<div style="font-size:12px;color:#374151;margin-bottom:4px;"><b>' +
+          (titles[left.id] || left.id) + '</b></div>' + imgTag(left.dataUrl, titles[left.id] || left.id)
+        : '&nbsp;',
+      '</td>'
+    );
+
+    chartsHTML.push(
+      '<td valign="top" style="padding:8px;width:', chartCellWidth, 'px;max-width:', chartCellWidth, 'px;">',
+      right
+        ? '<div style="font-size:12px;color:#374151;margin-bottom:4px;"><b>' +
+          (titles[right.id] || right.id) + '</b></div>' + imgTag(right.dataUrl, titles[right.id] || right.id)
+        : '&nbsp;',
+      '</td>'
+    );
+
+    chartsHTML.push('</tr>');
+  }
+  chartsHTML.push('</tbody></table>');
+  const chartsTwoCol = chartsHTML.join('');
+
+  // Final HTML
+  return [
+    '<!DOCTYPE html><html><head><meta charset="UTF-8"></head>',
+    '<body style="margin:0;padding:0;background:#ffffff;">',
+      '<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#ffffff;">',
+        '<tr><td align="center" style="padding:16px;">',
+          '<table role="presentation" cellpadding="0" cellspacing="0" width="', emailWidth,
+          '" style="width:', emailWidth, 'px;max-width:100%;">',
+            '<tr><td style="padding:16px 20px;background:#111827;color:#ffffff;',
+            'font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">',
+              '<div style="font-size:18px;font-weight:700;">STLC Report</div>',
+              '<div style="font-size:12px;opacity:.85;">Generated ', new Date().toLocaleString(), '</div>',
+            '</td></tr>',
+            '<tr><td style="padding:18px 20px;',
+            'font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;',
+            'color:#111827;font-size:14px;">',
+              fourColRow,
+              '<div style="height:14px;line-height:14px;font-size:0;">&nbsp;</div>',
+              '<div style="font-weight:700;font-size:15px;margin:6px 0 8px;color:#111827;">Charts</div>',
+              chartsTwoCol,
+              '<div style="margin-top:8px;font-size:12px;color:#6b7280;line-height:1.5;">',
+                '<em>Note:</em> Statuses are calculated effective-by-Column-S. “Closed – New US Created” appears as “Moved to New US”.',
+              '</div>',
+            '</td></tr>',
+            '<tr><td style="height:8px;background:#f3f4f6;"></td></tr>',
+          '</table>',
+        '</td></tr>',
+      '</table>',
+    '</body></html>'
+  ].join('');
+}
+
+function stripHTML(html) {
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  return tmp.textContent || tmp.innerText || '';
+}
+</script>
+</body>
+</html>
