@@ -335,7 +335,6 @@ function extractTimestamp(filename) {
   const match = filename.match(/(\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2})/);
   if (match) {
     const dateStr = match[1];
-    // Parse: 2025-09-24-13-04-17 -> 2025-09-24 13:04:17
     const parts = dateStr.split('-');
     const year = parts[0];
     const month = parts[1];
@@ -343,19 +342,17 @@ function extractTimestamp(filename) {
     const hour = parts[3];
     const minute = parts[4];
     const second = parts[5];
-    
     const parsedDate = new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}`);
     console.log(`Extracted timestamp from "${filename}": ${parsedDate.toISOString()}`);
     return parsedDate;
   }
   console.log(`Could not extract timestamp from "${filename}", using current time`);
-  return new Date(); // fallback to current time
+  return new Date(); // fallback
 }
 
 async function processMultipleFiles(files) {
   showProcessing();
   historicalData = [];
-  
   try {
     // Sort files by timestamp
     const fileData = files.map(file => ({
@@ -393,9 +390,8 @@ async function processMultipleFiles(files) {
     updateEnhancedDashboardWithChanges();
     showDashboard();
     hideProcessing();
-    
+
     console.log(`Successfully processed ${historicalData.length} reports from ${historicalData[0].timestamp.toLocaleString()} to ${latestReport.timestamp.toLocaleString()}`);
-    
   } catch (error) {
     console.error('Error:', error);
     hideProcessing();
@@ -431,11 +427,8 @@ async function processSingleFile(file) {
 
 function calculateChanges() {
   if (historicalData.length < 2) return null;
-  
   const current = historicalData[historicalData.length - 1].metrics;
   const previous = historicalData[historicalData.length - 2].metrics;
-  
-  // Calculate change as: current - previous (positive = increase, negative = decrease)
   return {
     totalStories: current.totalStories - previous.totalStories,
     readyForProd: current.readyForProd - previous.readyForProd,
@@ -461,8 +454,8 @@ function formatChange(value, isPercentage = false) {
 function updateEnhancedDashboardWithChanges() {
   const m = globalMetrics;
   const changes = calculateChanges();
-  
-  // Show/hide changes section based on whether we have multiple reports
+
+  // Show/hide changes section
   const changesSection = document.getElementById('changesSection');
   if (changes && historicalData.length >= 2) {
     changesSection.style.display = 'block';
@@ -470,8 +463,8 @@ function updateEnhancedDashboardWithChanges() {
   } else {
     changesSection.style.display = 'none';
   }
-  
-  // Update basic metrics with change indicators
+
+  // Metrics grid with change indicators
   document.getElementById('totalStories').innerHTML = `${m.totalStories} ${changes ? formatChange(changes.totalStories) : ''}`;
   document.getElementById('readyForProd').innerHTML = `${m.readyForProd} ${changes ? formatChange(changes.readyForProd) : ''}`;
   document.getElementById('inProgress').innerHTML = `${m.inProgress} ${changes ? formatChange(changes.inProgress) : ''}`;
@@ -483,63 +476,52 @@ function updateEnhancedDashboardWithChanges() {
   document.getElementById('activeSprints').textContent = m.activeSprints;
   document.getElementById('totalProducts').textContent = m.totalProducts;
 
-  // Update summary with timeline info
-  const timelineInfo = historicalData.length > 1 
-    ? `(${historicalData.length} reports from ${historicalData[0].timestamp.toLocaleDateString()} to ${historicalData[historicalData.length-1].timestamp.toLocaleDateString()})`
-    : '';
-
-  // Rest of summary updates...
+  // Summary cards
   document.getElementById('summaryStories').textContent = m.totalStories;
   document.getElementById('summaryPoints').textContent = m.totalPoints;
   document.getElementById('summarySprints').textContent = m.activeSprints;
   document.getElementById('summaryProducts').textContent = m.totalProducts;
-  
+
   document.getElementById('summaryReadyProd').textContent = m.statusDistribution['Ready for Production Deployment'] || 0;
   document.getElementById('summaryReadyTest').textContent = m.statusDistribution['Ready for Testing'] || 0;
   document.getElementById('summaryInDev').textContent = m.statusDistribution['Development In Progress'] || 0;
   document.getElementById('summaryReadyDev').textContent = m.statusDistribution['Ready for Development'] || 0;
-  
+
   document.getElementById('summaryDefects').textContent = m.totalDefects;
   document.getElementById('summaryTestCases').textContent = m.totalTestCases;
   document.getElementById('summaryTestCov').textContent = m.testCoverage + '%';
   document.getElementById('summaryCritical').textContent = m.impactDistribution['Critical'] || 0;
   document.getElementById('summaryHigh').textContent = m.impactDistribution['High'] || 0;
-  
+
   document.getElementById('summaryAssignees').textContent = Object.keys(m.assigneeDistribution).length;
   const topAssignee = Object.entries(m.assigneeDistribution).sort((a,b) => b[1] - a[1])[0];
   document.getElementById('summaryTopAssignee').textContent = topAssignee ? `${topAssignee[0]} (${topAssignee[1]})` : 'N/A';
   document.getElementById('summaryCompletion').innerHTML = `${m.completionRate}% ${changes ? formatChange(changes.completionRate, true) : ''}`;
 
-  // Update charts
+  // Charts
   createStatusChart(m.statusDistribution);
   createImpactChart(m.impactDistribution);
   createSprintChart(m.sprintDistribution);
   createProductChart(m.productDistribution);
   createAssigneeChart(m.assigneeDistribution);
   createPointsChart(m.pointsByStatus);
-  
-  // Add timeline visualization if multiple files
-  if (historicalData.length > 1) {
-    createTimelineChart();
-  }
+
+  if (historicalData.length > 1) createTimelineChart();
 }
 
 function updateChangesSection(changes) {
   const previous = historicalData[historicalData.length - 2];
   const current = historicalData[historicalData.length - 1];
-  
-  // Update timestamp info
-  document.getElementById('changesTimestamp').textContent = 
+
+  document.getElementById('changesTimestamp').textContent =
     `Comparing ${previous.timestamp.toLocaleString()} → ${current.timestamp.toLocaleString()}`;
 
-  // Create changes cards
   const changesContent = document.getElementById('changesContent');
-  
+
   const positiveChanges = [];
   const negativeChanges = [];
   const noChanges = [];
 
-  // Categorize changes
   const changeItems = [
     { label: 'Total Stories', value: changes.totalStories, current: current.metrics.totalStories },
     { label: 'Ready for Production', value: changes.readyForProd, current: current.metrics.readyForProd },
@@ -558,10 +540,8 @@ function updateChangesSection(changes) {
     else noChanges.push(item);
   });
 
-  // Build changes HTML
   let html = '';
 
-  // Positive changes (improvements)
   if (positiveChanges.length > 0) {
     html += `
       <div class="summary-card" style="border-left:4px solid #10b981;">
@@ -574,7 +554,6 @@ function updateChangesSection(changes) {
     html += `</ul></div>`;
   }
 
-  // Negative changes (regressions)
   if (negativeChanges.length > 0) {
     html += `
       <div class="summary-card" style="border-left:4px solid #ef4444;">
@@ -587,7 +566,6 @@ function updateChangesSection(changes) {
     html += `</ul></div>`;
   }
 
-  // No changes
   if (noChanges.length > 0) {
     html += `
       <div class="summary-card" style="border-left:4px solid #6b7280;">
@@ -599,7 +577,6 @@ function updateChangesSection(changes) {
     html += `</ul></div>`;
   }
 
-  // Summary statistics
   html += `
     <div class="summary-card" style="border-left:4px solid #3b82f6;">
       <h4 style="color:#3b82f6;">📊 Change Summary</h4>
@@ -618,12 +595,8 @@ function getTimeDifference(startTime, endTime) {
   const diffMs = endTime - startTime;
   const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
   const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-  
-  if (diffHours > 0) {
-    return `${diffHours}h ${diffMinutes}m`;
-  } else {
-    return `${diffMinutes}m`;
-  }
+  if (diffHours > 0) return `${diffHours}h ${diffMinutes}m`;
+  return `${diffMinutes}m`;
 }
 
 function showError(msg){
@@ -637,7 +610,6 @@ function hideProcessing(){ document.getElementById('processing').classList.remov
 
 function processFile(file){
   showProcessing();
-
   const reader = new FileReader();
   reader.onload = function(e){
     try{
@@ -666,15 +638,13 @@ function processFile(file){
   reader.readAsArrayBuffer(file);
 }
 
-/* ---------- FIX: make header detection less strict ---------- */
+/* ---------- Header detection (robust) ---------- */
 function findHeaderRow(jsonData){
-  // Accept: "Release Name ↑", "Release Name  ↑", or plain "Release Name"
   const isReleaseHeader = (cell) => {
     const s = (cell || '').toString().trim();
     if (!s) return false;
     if (s === 'Release Name') return true;
     if (s === 'Release Name ↑' || s === 'Release Name  ↑') return true;
-    // Sometimes Excel sorts add arrow right next to the word:
     if (s.includes('Release Name') && s.includes('↑')) return true;
     return false;
   };
@@ -683,7 +653,6 @@ function findHeaderRow(jsonData){
     const row = jsonData[i] || [];
     for(let j = 0; j < row.length; j++){
       if(isReleaseHeader(row[j])){
-        // console.log(`Found "Release Name" header at row ${i + 1}, col ${String.fromCharCode(65 + j)}`);
         return { rowIndex: i, colOffset: j };
       }
     }
@@ -706,9 +675,9 @@ function processReleaseData(jsonData){
     if(!row || row.length === 0 || !row.some(cell => cell && cell.toString().trim() !== '')) continue;
 
     const releaseName = (row[colOffset] || '').toString().trim();
-    const sprint = (row[colOffset + 2] || '').toString().trim(); // Skip empty column C, use column D
+    const sprint = (row[colOffset + 2] || '').toString().trim(); // Column D (skip C)
     const storyNumber = (row[colOffset + 3] || '').toString().trim(); // Column E
-    
+
     const releaseLower = releaseName.toLowerCase();
     const sprintLower = sprint.toLowerCase();
     if(releaseLower.includes('subtotal') || 
@@ -718,22 +687,22 @@ function processReleaseData(jsonData){
        sprintLower.includes('count')) {
       continue;
     }
-    
+
     if(storyNumber && storyNumber.trim() !== ''){
       let storyPointValue = 0;
       const storyPointRaw = (row[colOffset + 11] || '').toString().trim(); // Column M
       if(storyPointRaw && !isNaN(parseFloat(storyPointRaw))){
         storyPointValue = parseFloat(storyPointRaw);
       }
-      
+
       let defectCountValue = 0;
       const defectRaw = (row[colOffset + 15] || '').toString().trim(); // Column Q
       if(defectRaw && !isNaN(parseInt(defectRaw))){
         defectCountValue = parseInt(defectRaw);
       }
-      
+
       let totalTestCasesValue = 0;
-      const testCasesRaw = (row[colOffset + 16] || '').toString().trim(); // Column R 
+      const testCasesRaw = (row[colOffset + 16] || '').toString().trim(); // Column R
       if(testCasesRaw && !isNaN(parseInt(testCasesRaw))){
         totalTestCasesValue = parseInt(testCasesRaw);
       }
@@ -742,32 +711,29 @@ function processReleaseData(jsonData){
         releaseName: releaseName,
         sprint: sprint,
         storyNumber: storyNumber,
-        storyName: (row[colOffset + 4] || '').toString().trim(), // Column F
-        productName: (row[colOffset + 5] || '').toString().trim(), // Column G
-        epic: '', // Epic column removed
-        storyStatus: (row[colOffset + 6] || '').toString().trim(), // Column H
-        storyImpact: (row[colOffset + 7] || '').toString().trim(), // Column I
-        requestor: (row[colOffset + 8] || '').toString().trim(), // Column J
-        assignee: (row[colOffset + 9] || '').toString().trim(), // Column K
-        storyOwner: (row[colOffset + 10] || '').toString().trim(), // Column L
+        storyName: (row[colOffset + 4] || '').toString().trim(), // F
+        productName: (row[colOffset + 5] || '').toString().trim(), // G
+        epic: '',
+        storyStatus: (row[colOffset + 6] || '').toString().trim(), // H
+        storyImpact: (row[colOffset + 7] || '').toString().trim(), // I
+        requestor: (row[colOffset + 8] || '').toString().trim(), // J
+        assignee: (row[colOffset + 9] || '').toString().trim(), // K
+        storyOwner: (row[colOffset + 10] || '').toString().trim(), // L
         storyPoint: storyPointValue,
-        developedBy: (row[colOffset + 12] || '').toString().trim(), // Column N
-        lastModifiedBy: (row[colOffset + 13] || '').toString().trim(), // Column O
-        lastModifiedDate: (row[colOffset + 14] || '').toString().trim(), // Column P
+        developedBy: (row[colOffset + 12] || '').toString().trim(), // N
+        lastModifiedBy: (row[colOffset + 13] || '').toString().trim(), // O
+        lastModifiedDate: (row[colOffset + 14] || '').toString().trim(), // P
         defectCount: defectCountValue,
         totalTestCases: totalTestCasesValue,
         testCasesExecuted: 0
       };
-      
       dataRows.push(story);
     }
   }
-  
-  // console.log(`Found header at row ${headerIdx + 1}, starting at column ${String.fromCharCode(65 + colOffset)}. Processed ${dataRows.length} stories.`);
   return dataRows;
 }
 
-/* ---------- FIX: compute storiesWithTestCases BEFORE using it ---------- */
+/* ---------- Compute metrics ---------- */
 function calculateMetrics(data){
   const metrics = {
     totalStories: data.length,
@@ -792,7 +758,7 @@ function calculateMetrics(data){
     if(story.sprint) metrics.sprintDistribution[story.sprint] = (metrics.sprintDistribution[story.sprint] || 0) + 1;
     if(story.productName) metrics.productDistribution[story.productName] = (metrics.productDistribution[story.productName] || 0) + 1;
     if(story.assignee) metrics.assigneeDistribution[story.assignee] = (metrics.assigneeDistribution[story.assignee] || 0) + 1;
-    
+
     metrics.totalPoints += (Number(story.storyPoint) || 0);
     metrics.totalDefects += (Number(story.defectCount) || 0);
     metrics.totalTestCases += (Number(story.totalTestCases) || 0);
@@ -801,13 +767,12 @@ function calculateMetrics(data){
 
   const readyForProd = metrics.statusDistribution['Ready for Production Deployment'] || 0;
   const criticalStories = metrics.impactDistribution['Critical'] || 0;
-  const inProgress = (metrics.statusDistribution['Development In Progress'] || 0) + 
+  const inProgress = (metrics.statusDistribution['Development In Progress'] || 0) +
                      (metrics.statusDistribution['Ready for Testing'] || 0);
 
-  // Compute BEFORE use
   const storiesWithTestCases = data.filter(story => (Number(story.totalTestCases) || 0) > 0).length;
 
-  const testCoverage = metrics.totalStories > 0 
+  const testCoverage = metrics.totalStories > 0
     ? ((storiesWithTestCases / metrics.totalStories) * 100).toFixed(1)
     : '0.0';
   const completionRate = metrics.totalStories > 0
@@ -842,18 +807,18 @@ function updateDashboard(m){
   document.getElementById('summaryPoints').textContent = m.totalPoints;
   document.getElementById('summarySprints').textContent = m.activeSprints;
   document.getElementById('summaryProducts').textContent = m.totalProducts;
-  
+
   document.getElementById('summaryReadyProd').textContent = m.statusDistribution['Ready for Production Deployment'] || 0;
   document.getElementById('summaryReadyTest').textContent = m.statusDistribution['Ready for Testing'] || 0;
   document.getElementById('summaryInDev').textContent = m.statusDistribution['Development In Progress'] || 0;
   document.getElementById('summaryReadyDev').textContent = m.statusDistribution['Ready for Development'] || 0;
-  
+
   document.getElementById('summaryDefects').textContent = m.totalDefects;
   document.getElementById('summaryTestCases').textContent = m.totalTestCases;
   document.getElementById('summaryTestCov').textContent = m.testCoverage + '%';
   document.getElementById('summaryCritical').textContent = m.impactDistribution['Critical'] || 0;
   document.getElementById('summaryHigh').textContent = m.impactDistribution['High'] || 0;
-  
+
   document.getElementById('summaryAssignees').textContent = Object.keys(m.assigneeDistribution).length;
   const topAssignee = Object.entries(m.assigneeDistribution).sort((a,b) => b[1] - a[1])[0];
   document.getElementById('summaryTopAssignee').textContent = topAssignee ? `${topAssignee[0]} (${topAssignee[1]})` : 'N/A';
@@ -877,12 +842,12 @@ function createBarChart(containerId, data, colors){
 
   const maxVal = Math.max(...entries.map(e => e[1]));
   let html = '<div style="padding:20px;">';
-  
+
   entries.sort((a,b) => b[1] - a[1]).forEach(([key, count]) => {
     const pct = maxVal ? (count / maxVal) * 100 : 0;
     const color = colors[key] || '#6b7280';
     const shortKey = key.length > 40 ? key.slice(0,40) + '...' : key;
-    
+
     html += `
       <div style="margin-bottom:16px;">
         <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
@@ -894,7 +859,7 @@ function createBarChart(containerId, data, colors){
         </div>
       </div>`;
   });
-  
+
   html += '</div>';
   chart.innerHTML = html;
 }
@@ -941,12 +906,12 @@ function createTimelineChart(){
 
   let html = '<div style="padding:20px;overflow-x:auto;">';
   html += '<div style="display:flex;gap:20px;min-width:800px;">';
-  
+
   historicalData.forEach((report, index) => {
     const isLatest = index === historicalData.length - 1;
     const borderColor = isLatest ? '#3b82f6' : '#e5e7eb';
     const bgColor = isLatest ? '#f0f9ff' : '#f9fafb';
-    
+
     html += `
       <div style="flex:1;min-width:200px;border:2px solid ${borderColor};border-radius:8px;padding:12px;background:${bgColor};">
         <div style="font-weight:600;font-size:14px;margin-bottom:8px;color:#1f2937;">
@@ -964,7 +929,7 @@ function createTimelineChart(){
         ${isLatest ? '<div style="text-align:center;margin-top:8px;color:#3b82f6;font-size:10px;font-weight:600;">LATEST</div>' : ''}
       </div>`;
   });
-  
+
   html += '</div></div>';
   chart.innerHTML = html;
 }
@@ -985,6 +950,17 @@ function showDashboard(){
   document.getElementById('dashboard').scrollIntoView({ behavior:'smooth' });
 }
 
+/* ====== NEW: precise element capture helper ====== */
+async function captureAsImage(el, scale = Math.max(2, window.devicePixelRatio || 1)) {
+  if (!el) return null;
+  const canvas = await html2canvas(el, {
+    backgroundColor: '#ffffff',
+    scale
+  });
+  return canvas.toDataURL('image/png');
+}
+
+/* ====== Export full page to PDF (unchanged) ====== */
 async function exportReport() {
   if (!globalMetrics) return;
 
@@ -1009,11 +985,12 @@ async function exportReport() {
   const imgRatio = canvas.width / canvas.height;
   const targetW = 190;
   const targetH = targetW / imgRatio;
-  
+
   pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 10, 10, targetW, targetH);
   pdf.save(`Release_Progress_Report_${new Date().toISOString().slice(0,10)}.pdf`);
 }
 
+/* ====== FIXED: Copy Email Body to include ALL visible info ====== */
 async function copyEmailBody() {
   try {
     if (!globalMetrics) {
@@ -1021,29 +998,38 @@ async function copyEmailBody() {
       return;
     }
 
+    // 1) capture the headline metrics grid (with change arrows)
+    const metricsImg = await captureAsImage(document.querySelector('.metrics-grid'));
+
+    // 2) capture all charts individually (including the timeline)
     const chartIds = [
       'statusChart',
-      'impactChart', 
+      'impactChart',
       'sprintChart',
       'productChart',
+      'timelineChart',   // ← added
       'assigneeChart',
       'pointsChart'
     ];
-
     const chartImgs = [];
     for (const id of chartIds) {
       const el = document.getElementById(id);
       if (!el) continue;
-      const canvas = await html2canvas(el, {
-        backgroundColor: '#ffffff',
-        scale: Math.max(2, window.devicePixelRatio || 1)
-      });
-      const dataUrl = canvas.toDataURL('image/png');
+      const dataUrl = await captureAsImage(el);
       chartImgs.push({ id, dataUrl });
     }
 
-    const html = buildEmailHTML(globalMetrics, chartImgs);
+    // 3) capture the Changes Summary section if visible
+    let changesImg = null;
+    const changesEl = document.getElementById('changesSection');
+    if (changesEl && changesEl.style.display !== 'none') {
+      changesImg = await captureAsImage(changesEl);
+    }
 
+    // 4) build the email HTML with all pieces
+    const html = buildEmailHTML(globalMetrics, { metricsImg, chartImgs, changesImg });
+
+    // 5) copy to clipboard (HTML + Plaintext fallback)
     if (navigator.clipboard && window.ClipboardItem) {
       const blob = new Blob([html], { type: "text/html" });
       const plain = new Blob([stripHTML(html)], { type: "text/plain" });
@@ -1057,6 +1043,7 @@ async function copyEmailBody() {
       return;
     }
 
+    // Fallback: open in new tab so user can copy
     const win = window.open('', '_blank');
     win.document.open();
     win.document.write(html);
@@ -1068,16 +1055,13 @@ async function copyEmailBody() {
   }
 }
 
-function buildEmailHTML(m, chartImgs) {
+/* ====== NEW: Build email with metrics image, charts (incl. timeline), changes image + robust text tables ====== */
+function buildEmailHTML(m, images) {
+  const { metricsImg, chartImgs, changesImg } = images || {};
   const safe = s => (s == null ? '' : String(s));
 
-  const activeAssignees = Object.keys(m.assigneeDistribution || {}).length;
-  const topAssigneeEntry = Object.entries(m.assigneeDistribution || {}).sort((a,b)=>b[1]-a[1])[0];
-  const mostActive = topAssigneeEntry ? topAssigneeEntry[0] : 'N/A';
-
-  /* === Control sizes here === */
-  const emailWidth = 1280;                               // full email width
-  const chartsRowWidth = Math.min(1200, emailWidth - 80);// pair-of-charts row width
+  const emailWidth = 1280;
+  const chartsRowWidth = Math.min(1200, emailWidth - 80);
   const chartCellWidth = Math.floor((chartsRowWidth - 16) / 2);
   const labelPct = 62;
 
@@ -1092,34 +1076,33 @@ function buildEmailHTML(m, chartImgs) {
   ].join('');
 
   const tableWrap = rowsArr => [
-    '<table cellpadding="0" cellspacing="0" width="100%" ',
-    'style="border-collapse:collapse;table-layout:fixed;width:100%;">',
+    '<table cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;table-layout:fixed;width:100%;">',
       rowsArr.join(''),
     '</table>'
   ].join('');
 
-  // Blocks
+  // Summary tables (text-based)
   const overviewRows = [
     metricRow('Total Stories', safe(m.totalStories)),
     metricRow('Story Points', safe(m.totalPoints)),
     metricRow('Active Sprints', safe(m.activeSprints)),
     metricRow('Products', safe(m.totalProducts))
   ];
-
   const progressRows = [
     metricRow('Ready for Production', safe(m.statusDistribution['Ready for Production Deployment'] || 0)),
     metricRow('Ready for Testing', safe(m.statusDistribution['Ready for Testing'] || 0)),
     metricRow('In Development', safe(m.statusDistribution['Development In Progress'] || 0)),
     metricRow('Ready for Development', safe(m.statusDistribution['Ready for Development'] || 0))
   ];
-
   const qualityRows = [
     metricRow('Total Defects', safe(m.totalDefects)),
     metricRow('Test Coverage', safe(m.testCoverage) + '%'),
     metricRow('Critical Impact', safe(m.impactDistribution['Critical'] || 0)),
     metricRow('High Impact', safe(m.impactDistribution['High'] || 0))
   ];
-
+  const activeAssignees = Object.keys(m.assigneeDistribution || {}).length;
+  const topAssigneeEntry = Object.entries(m.assigneeDistribution || {}).sort((a,b)=>b[1]-a[1])[0];
+  const mostActive = topAssigneeEntry ? topAssigneeEntry[0] : 'N/A';
   const teamRows = [
     metricRow('Active Assignees', activeAssignees),
     metricRow('Top Contributor', mostActive),
@@ -1144,55 +1127,91 @@ function buildEmailHTML(m, chartImgs) {
     '</table>'
   ].join('');
 
-  // Charts (2 per row)
   const titles = {
     statusChart: 'Story Status Distribution',
     impactChart: 'Impact Analysis',
     sprintChart: 'Sprint Distribution',
     productChart: 'Product Distribution',
+    timelineChart: 'Progress Timeline',
     assigneeChart: 'Assignee Workload',
     pointsChart: 'Story Points by Status'
   };
 
-  const imgTag = (src, alt) => [
-    '<img src="', src, '" alt="', (alt || 'Chart image'),
-    '" width="', chartCellWidth, '" style="display:block;width:', chartCellWidth,
+  const imgTag = (src, alt, widthPx) => [
+    '<img src="', src, '" alt="', (alt || 'image'),
+    '" width="', widthPx, '" style="display:block;width:', widthPx,
     'px;height:auto;border-radius:6px;margin:6px 0;border:1px solid #e5e7eb;" />'
   ].join('');
 
-  const chartsHTML = [
-    '<table role="presentation" cellpadding="0" cellspacing="0" width="', chartsRowWidth,
-    '" style="table-layout:fixed;width:', chartsRowWidth, 'px;margin:0 auto;"><tbody>'
-  ];
-  for (let i = 0; i < chartImgs.length; i += 2) {
-    const left = chartImgs[i];
-    const right = chartImgs[i + 1];
-    chartsHTML.push('<tr>');
+  // Build the two-per-row chart grid; keep timeline full width if present
+  const chartsTwoCol = (() => {
+    if (!chartImgs || chartImgs.length === 0) return '';
+    const twoCol = [];
+    const singles = [];
+    for (const img of chartImgs) {
+      if (img.id === 'timelineChart') singles.push(img);
+      else twoCol.push(img);
+    }
 
-    chartsHTML.push(
-      '<td valign="top" style="padding:8px;width:', chartCellWidth, 'px;max-width:', chartCellWidth, 'px;">',
-      left
-        ? '<div style="font-size:12px;color:#374151;margin-bottom:4px;"><b>' +
-          (titles[left.id] || left.id) + '</b></div>' + imgTag(left.dataUrl, titles[left.id] || left.id)
-        : '&nbsp;',
-      '</td>'
-    );
+    const parts = [
+      '<table role="presentation" cellpadding="0" cellspacing="0" width="', chartsRowWidth,
+      '" style="table-layout:fixed;width:', chartsRowWidth, 'px;margin:0 auto;"><tbody>'
+    ];
 
-    chartsHTML.push(
-      '<td valign="top" style="padding:8px;width:', chartCellWidth, 'px;max-width:', chartCellWidth, 'px;">',
-      right
-        ? '<div style="font-size:12px;color:#374151;margin-bottom:4px;"><b>' +
-          (titles[right.id] || right.id) + '</b></div>' + imgTag(right.dataUrl, titles[right.id] || right.id)
-        : '&nbsp;',
-      '</td>'
-    );
+    for (let i = 0; i < twoCol.length; i += 2) {
+      const left = twoCol[i];
+      const right = twoCol[i + 1];
+      parts.push('<tr>');
+      parts.push(
+        '<td valign="top" style="padding:8px;width:', chartCellWidth, 'px;max-width:', chartCellWidth, 'px;">',
+        left ? '<div style="font-size:12px;color:#374151;margin-bottom:4px;"><b>' +
+                (titles[left.id] || left.id) + '</b></div>' + imgTag(left.dataUrl, titles[left.id], chartCellWidth)
+              : '&nbsp;',
+        '</td>'
+      );
+      parts.push(
+        '<td valign="top" style="padding:8px;width:', chartCellWidth, 'px;max-width:', chartCellWidth, 'px;">',
+        right ? '<div style="font-size:12px;color:#374151;margin-bottom:4px;"><b>' +
+                 (titles[right.id] || right.id) + '</b></div>' + imgTag(right.dataUrl, titles[right.id], chartCellWidth)
+               : '&nbsp;',
+        '</td>'
+      );
+      parts.push('</tr>');
+    }
 
-    chartsHTML.push('</tr>');
-  }
-  chartsHTML.push('</tbody></table>');
-  const chartsTwoCol = chartsHTML.join('');
+    // full-width singles (timeline)
+    for (const s of singles) {
+      parts.push(
+        '<tr><td colspan="2" style="padding:8px;">',
+        '<div style="font-size:12px;color:#374151;margin-bottom:4px;"><b>', (titles[s.id] || s.id), '</b></div>',
+        imgTag(s.dataUrl, titles[s.id], chartsRowWidth),
+        '</td></tr>'
+      );
+    }
 
-  // Final HTML - matching STLC structure
+    parts.push('</tbody></table>');
+    return parts.join('');
+  })();
+
+  const headerBlock = [
+    '<tr><td style="padding:16px 20px;background:#111827;color:#ffffff;',
+    'font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">',
+      '<div style="font-size:18px;font-weight:700;">Release Progress Report</div>',
+      '<div style="font-size:12px;opacity:.85;">Generated ', new Date().toLocaleString(), '</div>',
+    '</td></tr>'
+  ].join('');
+
+  const metricsBlock = metricsImg ? [
+    '<div style="font-weight:700;font-size:15px;margin:6px 0 8px;color:#111827;">Key Metrics</div>',
+    imgTag(metricsImg, 'Key Metrics', chartsRowWidth)
+  ].join('') : '';
+
+  const changesBlock = changesImg ? [
+    '<div style="height:14px;line-height:14px;font-size:0;">&nbsp;</div>',
+    '<div style="font-weight:700;font-size:15px;margin:6px 0 8px;color:#111827;">Changes Summary</div>',
+    imgTag(changesImg, 'Changes Summary', chartsRowWidth)
+  ].join('') : '';
+
   return [
     '<!DOCTYPE html><html><head><meta charset="UTF-8"></head>',
     '<body style="margin:0;padding:0;background:#ffffff;">',
@@ -1200,20 +1219,19 @@ function buildEmailHTML(m, chartImgs) {
         '<tr><td align="center" style="padding:16px;">',
           '<table role="presentation" cellpadding="0" cellspacing="0" width="', emailWidth,
           '" style="width:', emailWidth, 'px;max-width:100%;">',
-            '<tr><td style="padding:16px 20px;background:#111827;color:#ffffff;',
-            'font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">',
-              '<div style="font-size:18px;font-weight:700;">Release Progress Report</div>',
-              '<div style="font-size:12px;opacity:.85;">Generated ', new Date().toLocaleString(), '</div>',
-            '</td></tr>',
+            headerBlock,
             '<tr><td style="padding:18px 20px;',
             'font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;',
             'color:#111827;font-size:14px;">',
+              metricsBlock,
+              '<div style="height:14px;line-height:14px;font-size:0;">&nbsp;</div>',
               fourColRow,
               '<div style="height:14px;line-height:14px;font-size:0;">&nbsp;</div>',
               '<div style="font-weight:700;font-size:15px;margin:6px 0 8px;color:#111827;">Charts</div>',
               chartsTwoCol,
+              changesBlock,
               '<div style="margin-top:8px;font-size:12px;color:#6b7280;line-height:1.5;">',
-                '<em>Note:</em> Release progress tracking with story status, sprint analysis, and team performance metrics.',
+                '<em>Note:</em> This email mirrors the on-screen dashboard (metrics, charts, timeline, and changes summary).',
               '</div>',
             '</td></tr>',
             '<tr><td style="height:8px;background:#f3f4f6;"></td></tr>',
