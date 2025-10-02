@@ -181,6 +181,7 @@
             <div style="margin-bottom:6px">Total Executions: <span id="execTotal" style="color:var(--purple);font-weight:700">0</span></div>
             <div style="margin-bottom:6px">Execution Coverage: <span id="execCoverage" style="color:var(--green);font-weight:700">0%</span></div>
             <div style="margin-bottom:6px">Unassigned Executions: <span id="execUnassigned" style="color:var(--red);font-weight:700">0</span></div>
+            <div style="margin-bottom:6px">Passed Executions: <span id="execPassed" style="color:var(--green);font-weight:700">0</span></div>
             <div>Avg Executions/Test: <span id="execPerTest" style="color:var(--orange);font-weight:700">0</span></div>
           </div>
         </div>
@@ -193,6 +194,12 @@
           <div class="h">📊 Test Cases by Story</div>
           <div id="testCasesByStoryChart" class="chart-body"></div>
         </div>
+        <!-- FULL-WIDTH test executions status table -->
+        <div class="chart" style="grid-column:1 / -1">
+          <div class="h">🧾 Test Executions Status</div>
+          <div id="testExecutionsTable" class="chart-body"></div>
+        </div>
+        <div class="chart"><div class="h">📊 Executions by Status</div><div id="execStatusChart" class="chart-body"></div></div>
         <div class="chart"><div class="h">🧾 Executions by Assignee</div><div id="execByAssigneeChart" class="chart-body"></div></div>
         <div class="chart"><div class="h">⚖️ Test Workload Balance</div><div id="testWorkloadChart" class="chart-body"></div></div>
         <div class="chart"><div class="h">📈 Test Coverage Heatmap</div><div id="testCoverageHeatmapChart" class="chart-body"></div></div>
@@ -221,7 +228,6 @@
 
         <div class="chart"><div class="h">💥 Defects by Story Impact</div><div id="defectImpactChart" class="chart-body"></div></div>
         <div class="chart"><div class="h">🐛 Defects by Status</div><div id="defectStatusChart" class="chart-body"></div></div>
-        <div class="chart"><div class="h">⚠️ Defect Trend Analysis</div><div id="defectTrendChart" class="chart-body"></div></div>
       </div>
     </div>
 
@@ -404,7 +410,7 @@ function parseData(workbook){
         sprint     :String(r[12]||'').trim(),    // M
         totalTC    :Number(r[13])||0,            // N
         totalExec  :Number(r[16])||0,            // Q
-        totalDef   :Number(r[18])||0             // S
+        totalDef   :Number(r[19])||0             // T (shifted)
       });
     }
 
@@ -412,20 +418,28 @@ function parseData(workbook){
     const tcName       = String(r[14]||'').trim();    // O
     const tceNum       = String(r[15]||'').trim();    // P
     const execAssigned = String(r[17]||'').trim();    // R
+    const execStatus   = String(r[18]||'').trim();    // S (new column)
 
     if (tcName){
       testCases.push({ storyNumber: currentStoryNumber, storyName: currentStoryName, tcName });
     }
     if (tceNum || execAssigned){
-      executions.push({ storyNumber: currentStoryNumber, storyName: currentStoryName, tcName, tceNum, execAssigned });
+      executions.push({ 
+        storyNumber: currentStoryNumber, 
+        storyName: currentStoryName, 
+        tcName, 
+        tceNum, 
+        execAssigned,
+        execStatus
+      });
     }
 
-    // --- defects (T..X) ---
-    const defectName       = String(r[19]||'').trim(); // T
-    const defectNum        = String(r[20]||'').trim(); // U
-    const defectCreatedBy  = String(r[21]||'').trim(); // V
-    const defectStatus     = String(r[22]||'').trim(); // W
-    const defectAssignedTo = String(r[23]||'').trim(); // X
+    // --- defects (T..Y) --- (all shifted right by 1)
+    const defectName       = String(r[19]||'').trim(); // T (shifted)
+    const defectNum        = String(r[20]||'').trim(); // U (shifted)
+    const defectCreatedBy  = String(r[21]||'').trim(); // V (shifted)
+    const defectStatus     = String(r[22]||'').trim(); // W (shifted)
+    const defectAssignedTo = String(r[23]||'').trim(); // X (shifted)
 
     if (defectNum || defectName){
       defects.push({
@@ -534,6 +548,8 @@ function renderDashboard(){
   setTxt('execCoverage', metrics.testEfficiency + '%');
   const unassigned = globalData.executions.filter(e => !e.execAssigned && (e.tceNum || e.tcName)).length;
   setTxt('execUnassigned', unassigned);
+  const passedExecutions = globalData.executions.filter(e => e.execStatus && e.execStatus.toLowerCase().includes('pass')).length;
+  setTxt('execPassed', passedExecutions);
   const execPerTest = metrics.totalTC>0 ? (metrics.totalExec/metrics.totalTC).toFixed(1) : '0.0';
   setTxt('execPerTest', execPerTest);
 
@@ -550,7 +566,25 @@ function renderDashboard(){
   // show full story name (no truncation)
   renderChart('testCasesByStoryChart', testCasesByStory, {}, { noTruncate:true });
 
+  // Render test executions table
+  renderTestExecutionsTable('testExecutionsTable');
+
+  // Render execution status chart
+  const execStatusDist = {};
+  globalData.executions.forEach(e => {
+    if (e.execStatus) {
+      const status = e.execStatus || 'No Status';
+      execStatusDist[status] = (execStatusDist[status] || 0) + 1;
+    }
+  });
+  renderChart('execStatusChart', execStatusDist, {
+    'Pass':'#10b981','Passed':'#10b981','Failed':'#ef4444','Fail':'#ef4444',
+    'Blocked':'#f59e0b','In Progress':'#3b82f6','Not Run':'#6b7280','Pending':'#8b5cf6'
+  });
+
+  // Fix executions by assignee chart - use the correct distribution
   renderChart('execByAssigneeChart', metrics.execAssigneeDist, {});
+
   if (gid('testWorkloadChart')) renderTestWorkloadBalance('testWorkloadChart', metrics.execAssigneeDist);
   if (gid('testCoverageHeatmapChart')) renderTestCoverageHeatmap('testCoverageHeatmapChart');
 
@@ -681,6 +715,72 @@ function renderDefectsTable(containerId){
   container.innerHTML = html;
 }
 
+/* Render a table of test executions with status */
+function renderTestExecutionsTable(containerId){
+  const container = gid(containerId);
+  if (!container) return;
+
+  const executions = globalData.executions || [];
+  if (!executions.length){
+    container.innerHTML = '<div class="small" style="text-align:center;padding:20px">No execution data</div>';
+    return;
+  }
+
+  // Filter and sort executions
+  const rows = executions
+    .filter(e => e.tceNum || e.tcName || e.execAssigned) // Only show actual executions
+    .map(e => ({
+      storyName: e.storyName || (globalData.stories.find(s=>s.storyNumber===e.storyNumber)?.storyName) || '(Unknown story)',
+      storyNumber: e.storyNumber || '',
+      tcName: e.tcName || '',
+      tceNum: e.tceNum || '',
+      execAssigned: e.execAssigned || '',
+      execStatus: e.execStatus || 'No Status'
+    }))
+    .sort((a,b)=>{
+      const s = a.storyName.localeCompare(b.storyName);
+      if (s !== 0) return s;
+      return (a.tcName||'').localeCompare(b.tcName||'');
+    });
+
+  // Build table
+  let html = '<div style="max-height:400px;overflow:auto;border:1px solid var(--card-border);border-radius:6px">';
+  html += '<table><thead><tr>' +
+          '<th style="width:25%">Story Name</th>' +
+          '<th style="width:15%">Test Case</th>' +
+          '<th style="width:12%">Execution #</th>' +
+          '<th style="width:18%">Assigned To</th>' +
+          '<th style="width:15%">Status</th>' +
+          '<th style="width:15%">Story #</th>' +
+          '</tr></thead><tbody>';
+
+  rows.forEach(r=>{
+    const statusColor = getStatusColor(r.execStatus);
+    html += `<tr>
+      <td>${escapeHtml(r.storyName)}</td>
+      <td>${escapeHtml(r.tcName)}</td>
+      <td>${escapeHtml(r.tceNum)}</td>
+      <td>${escapeHtml(r.execAssigned)}</td>
+      <td style="color:${statusColor};font-weight:600">${escapeHtml(r.execStatus)}</td>
+      <td>${escapeHtml(r.storyNumber)}</td>
+    </tr>`;
+  });
+
+  html += '</tbody></table></div>';
+  container.innerHTML = html;
+}
+
+/* Get color for execution status */
+function getStatusColor(status) {
+  const s = (status || '').toLowerCase();
+  if (s.includes('pass')) return '#10b981';
+  if (s.includes('fail')) return '#ef4444';
+  if (s.includes('block')) return '#f59e0b';
+  if (s.includes('progress')) return '#3b82f6';
+  if (s.includes('pending')) return '#8b5cf6';
+  return '#6b7280';
+}
+
 /* Balanced workload bar list (light) */
 function renderTestWorkloadBalance(containerId, execAssigneeDist){
   const container = gid(containerId);
@@ -753,44 +853,7 @@ function renderTestCoverageHeatmap(containerId){
   html += '</div>'; container.innerHTML = html;
 }
 
-/* Defect trend grouped by story impact (light) */
-function renderDefectTrend(containerId){
-  const container = gid(containerId);
-  if (!container) return;
-  const defects = globalData.defects||[];
-  if (!defects.length){ container.innerHTML='<div class="small" style="text-align:center;padding:20px">No defect data</div>'; return; }
-
-  const trend = {};
-  defects.forEach(d=>{
-    const s = globalData.stories.find(x=>x.storyNumber===d.storyNumber);
-    const impact = s?.impact || 'Unknown';
-    const key = `${impact} Impact`;
-    trend[key] = trend[key] || { total:0, open:0, critical:0 };
-    trend[key].total++;
-    if (d.defectStatus !== 'Closed' && d.defectStatus !== 'Resolved') trend[key].open++;
-    if (impact === 'Critical') trend[key].critical++;
-  });
-
-  let html = '<div style="padding:8px">';
-  Object.entries(trend).sort((a,b)=>b[1].total-a[1].total).forEach(([cat,d])=>{
-    const openPct = d.total>0 ? (d.open/d.total)*100 : 0;
-    const color = openPct>50? '#ef4444' : openPct>25? '#f59e0b' : '#10b981';
-    html += `
-      <div style="margin-bottom:10px;padding:10px;background:#ffffff;border:1px solid #e5e7eb;border-radius:8px">
-        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-          <span style="font-weight:700;color:#111827">${cat}</span>
-          <span style="color:${color};font-weight:800">${d.total} total</span>
-        </div>
-        <div class="small">
-          ${d.open} open (${openPct.toFixed(1)}%) • ${d.critical} critical
-        </div>
-        <div style="background:#e5e7eb;border-radius:6px;height:6px;margin-top:6px">
-          <div style="background:${color};height:100%;width:${openPct}%;border-radius:6px"></div>
-        </div>
-      </div>`;
-  });
-  html += '</div>'; container.innerHTML=html;
-}
+/* Defect trend grouped by story impact (light) - REMOVED */
 
 /* Data quality block (light) */
 function renderDataQuality(){
@@ -858,7 +921,9 @@ function expandScrollableForCapture(){
     document.getElementById('storyAssigneeWorkload'),
     document.getElementById('testAssigneeWorkload'),
     // inner wrapper inside the defects table container
-    ...document.querySelectorAll('#defectsByStoryChart > div')
+    ...document.querySelectorAll('#defectsByStoryChart > div'),
+    // inner wrapper inside the test executions table container
+    ...document.querySelectorAll('#testExecutionsTable > div')
   ].filter(Boolean);
 
   const prev = toExpand.map(el => ({
