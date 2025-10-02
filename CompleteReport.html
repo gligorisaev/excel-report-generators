@@ -419,20 +419,6 @@ function calculateMetrics(data){
     }
   }
 
-  // (kept for potential future use)
-  const defectCreatorDist = {};
-  const defectAssigneeDist = {};
-  for (const d of defects){
-    if (d.defectCreatedBy && d.defectCreatedBy.trim()){
-      const who = d.defectCreatedBy.trim();
-      defectCreatorDist[who] = (defectCreatorDist[who] || 0) + 1;
-    }
-    if (d.defectAssignedTo && d.defectAssignedTo.trim()){
-      const asg = d.defectAssignedTo.trim();
-      defectAssigneeDist[asg] = (defectAssigneeDist[asg] || 0) + 1;
-    }
-  }
-
   const coverage = totalStories ? ((storiesWithTC.size/totalStories)*100).toFixed(1) : '0.0';
   const completion = totalStories ? ((readyForProd/totalStories)*100).toFixed(1) : '0.0';
   const defectDensity = totalPoints>0 ? (totalDef/totalPoints).toFixed(2) : '0.00';
@@ -541,7 +527,7 @@ function renderDashboard(){
   });
   renderChart('defectImpactChart', defectImpactDist, {'Critical':'#dc2626','High':'#ea580c','Medium':'#f59e0b','Low':'#10b981'});
 
-  // Full-width Defects table by Story Name (now includes Status)
+  // Full-width Defects table by Story Name (includes Status)
   renderDefectsTable('defectsByStoryChart');
 
   // Data quality
@@ -810,25 +796,80 @@ async function capture(el, scale=Math.max(2,window.devicePixelRatio||1)){
   const canvas = await html2canvas(el, {backgroundColor:'#ffffff', scale});
   return canvas.toDataURL('image/png');
 }
+
+/* Expand scrollable content so screenshots show the full lists/tables */
+function expandScrollableForCapture(){
+  const toExpand = [
+    ...document.querySelectorAll('.chart-body'),
+    document.getElementById('storyAssigneeWorkload'),
+    document.getElementById('testAssigneeWorkload'),
+    // inner wrapper inside the defects table container
+    ...document.querySelectorAll('#defectsByStoryChart > div')
+  ].filter(Boolean);
+
+  const prev = toExpand.map(el => ({
+    el,
+    maxHeight: el.style.maxHeight,
+    overflow: el.style.overflow,
+    overflowY: el.style.overflowY
+  }));
+
+  toExpand.forEach(el => {
+    el.style.maxHeight = 'unset';
+    el.style.overflow = 'visible';
+    el.style.overflowY = 'visible';
+  });
+
+  return () => {
+    prev.forEach(({el,maxHeight,overflow,overflowY}) => {
+      el.style.maxHeight = maxHeight || '';
+      el.style.overflow = overflow || '';
+      el.style.overflowY = overflowY || '';
+    });
+  };
+}
+
 async function exportPDF(){
   if (!globalData.stories.length){ alert('Please load data first'); return; }
   const { jsPDF } = window.jspdf;
   const pdf = new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
   const hide = document.querySelectorAll('.upload'); const keep=[];
   hide.forEach(el=>{ keep.push({el,display:el.style.display}); el.style.display='none'; });
+
+  const restore = expandScrollableForCapture();
   const shot = await capture(document.querySelector('.container'));
+  restore();
+
   keep.forEach(k=>k.el.style.display=k.display||'');
   const img = new Image(); img.src=shot;
   img.onload=()=>{ const ratio=img.width/img.height; const w=190; const h=w/ratio; pdf.addImage(shot,'PNG',10,10,w,h); pdf.save(`Release_Progress_Report_${new Date().toISOString().slice(0,10)}.pdf`); };
 }
+
 async function copyEmailBody(){
   if (!globalData.stories.length){ alert('Please load data first.'); return; }
+
+  // Hide upload controls for a clean shot and expand lists
+  const hide = document.querySelectorAll('.upload'); const keep=[];
+  hide.forEach(el=>{ keep.push({el,display:el.style.display}); el.style.display='none'; });
+
+  const restoreScroll = expandScrollableForCapture();
+
+  // Capture metrics and ALL sections so nothing is clipped
   const metr = await capture(document.querySelector('.metrics'));
-  const firstSection = await capture(document.querySelectorAll('.section')[0]);
-  const charts = await capture(document.querySelectorAll('.section')[1]);
+  const sections = Array.from(document.querySelectorAll('.section'));
+  const sectionShots = [];
+  for (const sec of sections){
+    sectionShots.push(await capture(sec));
+  }
+
+  // Restore UI state
+  restoreScroll();
+  keep.forEach(k=>k.el.style.display=k.display||'');
 
   const W = 1200;
   const img = (src,w)=>`<img src="${src}" width="${w}" style="display:block;width:${w}px;height:auto;border:1px solid #e5e7eb;border-radius:6px;margin:6px 0"/>`;
+
+  // Build email HTML with all section images
   const html = `
   <!doctype html><html><body style="margin:0;padding:0;background:#fff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
     <div style="padding:16px;margin:0 auto;max-width:${W}px">
@@ -837,10 +878,12 @@ async function copyEmailBody(){
         <div style="font-size:14px;color:#6b7280">Generated ${new Date().toLocaleString()}</div>
       </div>
       <h3 style="margin:16px 4px;color:#111827">📈 Key Metrics</h3>${img(metr,W-80)}
-      <h3 style="margin:16px 4px;color:#111827">🎯 Analytics</h3>${img(firstSection,W-80)}
-      <h3 style="margin:16px 4px;color:#111827">📊 Distributions</h3>${img(charts,W-80)}
+      ${sectionShots.map((s,i)=>`
+        <h3 style="margin:16px 4px;color:#111827">${document.querySelectorAll('.section .title')[i]?.textContent || 'Section'}</h3>
+        ${img(s,W-80)}
+      `).join('')}
       <div style="margin-top:20px;padding:12px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px">
-        <strong>Summary:</strong> ${metrics.completion}% completion, ${metrics.totalStories} stories, 
+        <strong>Summary:</strong> ${metrics.completion}% completion, ${metrics.totalStories} stories,
         ${metrics.totalDef} defects, ${metrics.coverage}% stories with tests.
       </div>
     </div>
