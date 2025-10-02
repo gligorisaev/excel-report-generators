@@ -349,7 +349,7 @@ function readExcel(file){
   });
 }
 
-/* ---------- Parse (B..X columns) with carry-forward ---------- */
+/* ---------- Parse (B..Y columns) with carry-forward ---------- */
 function parseData(workbook){
   const ws = workbook.Sheets[workbook.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
@@ -404,7 +404,7 @@ function parseData(workbook){
         sprint     :String(r[12]||'').trim(),    // M
         totalTC    :Number(r[13])||0,            // N
         totalExec  :Number(r[16])||0,            // Q
-        totalDef   :Number(r[18])||0             // S
+        totalDef   :Number(r[19])||0             // T
       });
     }
 
@@ -412,20 +412,28 @@ function parseData(workbook){
     const tcName       = String(r[14]||'').trim();    // O
     const tceNum       = String(r[15]||'').trim();    // P
     const execAssigned = String(r[17]||'').trim();    // R
+    const execStatus   = String(r[18]||'').trim();    // S
 
     if (tcName){
       testCases.push({ storyNumber: currentStoryNumber, storyName: currentStoryName, tcName });
     }
     if (tceNum || execAssigned){
-      executions.push({ storyNumber: currentStoryNumber, storyName: currentStoryName, tcName, tceNum, execAssigned });
+      executions.push({ 
+        storyNumber: currentStoryNumber, 
+        storyName: currentStoryName, 
+        tcName, 
+        tceNum, 
+        execAssigned,
+        execStatus
+      });
     }
 
-    // --- defects (T..X) ---
-    const defectName       = String(r[19]||'').trim(); // T
-    const defectNum        = String(r[20]||'').trim(); // U
-    const defectCreatedBy  = String(r[21]||'').trim(); // V
-    const defectStatus     = String(r[22]||'').trim(); // W
-    const defectAssignedTo = String(r[23]||'').trim(); // X
+    // --- defects (T..Y) ---
+    const defectName       = String(r[20]||'').trim(); // U
+    const defectNum        = String(r[21]||'').trim(); // V
+    const defectCreatedBy  = String(r[22]||'').trim(); // W
+    const defectStatus     = String(r[23]||'').trim(); // X
+    const defectAssignedTo = String(r[24]||'').trim(); // Y
 
     if (defectNum || defectName){
       defects.push({
@@ -583,6 +591,9 @@ function renderDashboard(){
 
   // Full-width Defects table by Story Name (includes Status)
   renderDefectsTable('defectsByStoryChart');
+
+  // Render defect trend chart
+  if (gid('defectTrendChart')) renderDefectTrend('defectTrendChart');
 
   // Data quality
   renderDataQuality();
