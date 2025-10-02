@@ -125,9 +125,9 @@
   <div class="upload">
     <div class="upload-area" onclick="document.getElementById('fileInput').click()">
       <div style="font-size:2rem">📁</div>
-      <div style="font-weight:700;margin-top:6px">Click to upload Excel file</div>
-      <div class="small">Supports .xlsx and .xls files with your data structure</div>
-      <input id="fileInput" type="file" accept=".xlsx,.xls" style="display:none"/>
+      <div style="font-weight:700;margin-top:6px">Click to upload Excel file(s)</div>
+      <div class="small">Supports .xlsx and .xls files — Select multiple files to compare</div>
+      <input id="fileInput" type="file" accept=".xlsx,.xls" multiple style="display:none"/>
     </div>
     <div id="processing" class="processing"><span class="spinner"></span>Processing data...</div>
     <div id="error" class="error"></div>
@@ -225,6 +225,12 @@
       </div>
     </div>
 
+    <!-- COMPARISON SECTION (only shown when multiple files) -->
+    <div id="comparisonSection" class="section" style="display:none">
+      <div class="title">📊 Differences Between Uploaded Files</div>
+      <div id="comparisonContainer"></div>
+    </div>
+
     <!-- DATA QUALITY -->
     <div class="section">
       <div class="title">✅ Data Quality Analysis</div>
@@ -245,11 +251,13 @@
 <script>
 let globalData = { stories:[], testCases:[], executions:[], defects:[] };
 let metrics = {};
+let allFileData = []; // Store data from all uploaded files
+let fileComparison = null;
 
 document.addEventListener('DOMContentLoaded', () => {
   const fileInput = document.getElementById('fileInput');
   fileInput.addEventListener('change', e => {
-    if (e.target.files.length) processFile(e.target.files[0]);
+    if (e.target.files.length) processFiles(Array.from(e.target.files));
   });
 });
 
@@ -279,6 +287,52 @@ async function processFile(file){
   }catch(err){
     hideProcessing();
     showError('Error processing file: ' + err.message);
+  }
+}
+
+async function processFiles(files){
+  showProcessing();
+  allFileData = [];
+  fileComparison = null;
+
+  try{
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const workbook = await readExcel(file);
+      const data = parseData(workbook);
+
+      // De-dupe test cases
+      const dedupedTC = Array.from(
+        new Map((data.testCases||[]).map(tc => [`${tc.storyNumber}||${tc.tcName}`, tc])).values()
+      );
+      data.testCases = dedupedTC;
+
+      const fileMetrics = calculateMetrics(data);
+
+      allFileData.push({
+        fileName: file.name,
+        data: data,
+        metrics: fileMetrics
+      });
+    }
+
+    // Use the last file as the main report
+    const primaryFile = allFileData[allFileData.length - 1];
+    globalData = primaryFile.data;
+    metrics = primaryFile.metrics;
+
+    // Generate comparison if multiple files
+    if (allFileData.length > 1) {
+      fileComparison = generateComparison();
+    }
+
+    renderDashboard();
+    if (fileComparison) renderComparison();
+    hideProcessing();
+    showDashboard();
+  }catch(err){
+    hideProcessing();
+    showError('Error processing file(s): ' + err.message);
   }
 }
 
@@ -977,6 +1031,112 @@ function escapeHtml(str){
     .replace(/>/g,'&gt;')
     .replace(/"/g,'&quot;')
     .replace(/'/g,'&#39;');
+}
+
+/* ---------- Comparison Rendering ---------- */
+function generateComparison() {
+  if (allFileData.length < 2) return null;
+
+  const baseFile = allFileData[0];
+  const currentFile = allFileData[allFileData.length - 1];
+
+  const comparison = {
+    baseFile: baseFile.fileName,
+    currentFile: currentFile.fileName,
+    metrics: {},
+    newStories: [],
+    removedStories: [],
+    newTestCases: [],
+    removedTestCases: [],
+    newDefects: [],
+    removedDefects: []
+  };
+
+  // Metrics diff
+  for (const key of ['totalStories','totalPoints','totalTC','totalExec','totalDef','readyForProd','coverage','completion']) {
+    comparison.metrics[key] = {
+      base: baseFile.metrics[key],
+      current: currentFile.metrics[key],
+      diff: (parseFloat(currentFile.metrics[key]) - parseFloat(baseFile.metrics[key]))
+    };
+  }
+
+  // Stories diff
+  const baseStories = new Set(baseFile.data.stories.map(s => s.storyNumber));
+  const currentStories = new Set(currentFile.data.stories.map(s => s.storyNumber));
+  comparison.newStories = currentFile.data.stories.filter(s => !baseStories.has(s.storyNumber));
+  comparison.removedStories = baseFile.data.stories.filter(s => !currentStories.has(s.storyNumber));
+
+  // Test cases diff
+  const baseTC = new Set(baseFile.data.testCases.map(tc => `${tc.storyNumber}||${tc.tcName}`));
+  const currentTC = new Set(currentFile.data.testCases.map(tc => `${tc.storyNumber}||${tc.tcName}`));
+  comparison.newTestCases = currentFile.data.testCases.filter(tc => !baseTC.has(`${tc.storyNumber}||${tc.tcName}`));
+  comparison.removedTestCases = baseFile.data.testCases.filter(tc => !currentTC.has(`${tc.storyNumber}||${tc.tcName}`));
+
+  // Defects diff
+  const baseDef = new Set(baseFile.data.defects.map(d => `${d.storyNumber}||${d.defectNum}||${d.defectName}`));
+  const currentDef = new Set(currentFile.data.defects.map(d => `${d.storyNumber}||${d.defectNum}||${d.defectName}`));
+  comparison.newDefects = currentFile.data.defects.filter(d => !baseDef.has(`${d.storyNumber}||${d.defectNum}||${d.defectName}`));
+  comparison.removedDefects = baseFile.data.defects.filter(d => !currentDef.has(`${d.storyNumber}||${d.defectNum}||${d.defectName}`));
+
+  return comparison;
+}
+
+function renderComparison() {
+  const section = document.getElementById('comparisonSection');
+  const container = document.getElementById('comparisonContainer');
+  section.style.display = 'block';
+
+  const cmp = fileComparison;
+  const diffColor = v => v > 0 ? '#10b981' : v < 0 ? '#ef4444' : '#6b7280';
+  const diffFmt = v => `<span style="color:${diffColor(v)};font-weight:700">${v>0?'+':''}${v}</span>`;
+
+  let html = `
+    <div style="margin-bottom:12px">
+      <strong>Base file:</strong> ${cmp.baseFile}<br>
+      <strong>Compared to:</strong> ${cmp.currentFile}
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+      <div>
+        <div style="font-weight:600;margin-bottom:6px">Metric Differences</div>
+        <div style="background:#f9fafb;padding:10px;border-radius:6px;border:1px solid #e5e7eb">
+          ${Object.entries(cmp.metrics).map(([k,v])=>`
+            <div style="margin-bottom:4px">${k}: ${v.base} → ${v.current} (${diffFmt(v.diff)})</div>
+          `).join('')}
+        </div>
+      </div>
+      <div>
+        <div style="font-weight:600;margin-bottom:6px">Summary</div>
+        <div style="background:#f9fafb;padding:10px;border-radius:6px;border:1px solid #e5e7eb">
+          <div>New Stories: <span style="color:#10b981;font-weight:700">${cmp.newStories.length}</span></div>
+          <div>Removed Stories: <span style="color:#ef4444;font-weight:700">${cmp.removedStories.length}</span></div>
+          <div>New Test Cases: <span style="color:#10b981;font-weight:700">${cmp.newTestCases.length}</span></div>
+          <div>Removed Test Cases: <span style="color:#ef4444;font-weight:700">${cmp.removedTestCases.length}</span></div>
+          <div>New Defects: <span style="color:#ef4444;font-weight:700">${cmp.newDefects.length}</span></div>
+          <div>Removed Defects: <span style="color:#10b981;font-weight:700">${cmp.removedDefects.length}</span></div>
+        </div>
+      </div>
+    </div>
+    <div style="margin-bottom:8px">
+      ${cmp.newStories.length ? `<div style="font-weight:600;color:#10b981;margin-bottom:4px">New Stories:</div>
+        <div style="font-size:0.85rem">${cmp.newStories.map(s=>`• ${s.storyNumber}: ${s.storyName}`).join('<br>')}</div>` : ''}
+      ${cmp.removedStories.length ? `<div style="font-weight:600;color:#ef4444;margin-top:8px;margin-bottom:4px">Removed Stories:</div>
+        <div style="font-size:0.85rem">${cmp.removedStories.map(s=>`• ${s.storyNumber}: ${s.storyName}`).join('<br>')}</div>` : ''}
+    </div>
+    <div style="margin-bottom:8px">
+      ${cmp.newTestCases.length ? `<div style="font-weight:600;color:#10b981;margin-bottom:4px">New Test Cases:</div>
+        <div style="font-size:0.85rem">${cmp.newTestCases.map(tc=>`• ${tc.storyNumber}: ${tc.tcName}`).join('<br>')}</div>` : ''}
+      ${cmp.removedTestCases.length ? `<div style="font-weight:600;color:#ef4444;margin-top:8px;margin-bottom:4px">Removed Test Cases:</div>
+        <div style="font-size:0.85rem">${cmp.removedTestCases.map(tc=>`• ${tc.storyNumber}: ${tc.tcName}`).join('<br>')}</div>` : ''}
+    </div>
+    <div style="margin-bottom:8px">
+      ${cmp.newDefects.length ? `<div style="font-weight:600;color:#ef4444;margin-bottom:4px">New Defects:</div>
+        <div style="font-size:0.85rem">${cmp.newDefects.map(d=>`• ${d.storyNumber}: ${d.defectNum||d.defectName}`).join('<br>')}</div>` : ''}
+      ${cmp.removedDefects.length ? `<div style="font-weight:600;color:#10b981;margin-top:8px;margin-bottom:4px">Removed Defects:</div>
+        <div style="font-size:0.85rem">${cmp.removedDefects.map(d=>`• ${d.storyNumber}: ${d.defectNum||d.defectName}`).join('<br>')}</div>` : ''}
+    </div>
+  `;
+  container.innerHTML = html;
 }
 </script>
 </body>
