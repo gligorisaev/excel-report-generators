@@ -597,6 +597,9 @@ function renderDashboard(){
 
   // Data quality
   renderDataQuality();
+
+  // Render comparison if available
+  if (fileComparison) renderComparison();
 }
 
 /* Small DOM helpers */
