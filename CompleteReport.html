@@ -97,8 +97,8 @@
     .chart-body{max-height:300px;overflow-y:auto}
 
     table{border-collapse:collapse;width:100%;background:#ffffff}
-    th,td{border:1px solid var(--card-border);padding:8px;font-size:.85rem}
-    th{background:#f8fafc;color:var(--muted-2);font-weight:700}
+    th,td{border:1px solid var(--card-border);padding:8px;font-size:.85rem;vertical-align:top}
+    th{background:#f8fafc;color:#0f172a;font-weight:700;position:sticky;top:0;z-index:1}
     td{color:var(--text)}
 
     .actions{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
@@ -188,7 +188,11 @@
           <h4 style="color:var(--muted-2);margin-bottom:8px">👨‍💻 Test Execution Assignees</h4>
           <div id="testAssigneeWorkload" style="background:#f9fafb;padding:12px;border-radius:8px;border:1px solid var(--card-border);max-height:200px;overflow-y:auto"></div>
         </div>
-        <div class="chart"><div class="h">📊 Test Cases by Story</div><div id="testCasesByStoryChart" class="chart-body"></div></div>
+        <!-- FULL-WIDTH test cases by story name -->
+        <div class="chart" style="grid-column:1 / -1">
+          <div class="h">📊 Test Cases by Story</div>
+          <div id="testCasesByStoryChart" class="chart-body"></div>
+        </div>
         <div class="chart"><div class="h">🧾 Executions by Assignee</div><div id="execByAssigneeChart" class="chart-body"></div></div>
         <div class="chart"><div class="h">⚖️ Test Workload Balance</div><div id="testWorkloadChart" class="chart-body"></div></div>
         <div class="chart"><div class="h">📈 Test Coverage Heatmap</div><div id="testCoverageHeatmapChart" class="chart-body"></div></div>
@@ -200,7 +204,7 @@
       <div class="grid two">
         <div>
           <h4 style="color:var(--muted-2);margin-bottom:8px">🐛 Defect Metrics</h4>
-          <div style="background:#f9fafb;padding:12px;border-radius:8px;border:1px solid var(--card-border)">
+          <div style="background:#f9fafb;padding:12px;border-radius:8px;border:1px solid #e5e7eb">
             <div style="margin-bottom:6px">Total Defects: <span id="defectTotal" style="color:var(--red);font-weight:700">0</span></div>
             <div style="margin-bottom:6px">Defect Density: <span id="defectDensityVal" style="color:var(--orange);font-weight:700">0</span></div>
             <div style="margin-bottom:6px">Critical Defects: <span id="defectCritical" style="color:#b91c1c;font-weight:700">0</span></div>
@@ -208,13 +212,15 @@
             <div>Defects per Story: <span id="defectPerStory" style="color:var(--indigo);font-weight:700">0</span></div>
           </div>
         </div>
-        <div>
-          <h4 style="color:var(--muted-2);margin-bottom:8px">🔍 Defect Creators</h4>
-          <div id="defectCreatorWorkload" style="background:#f9fafb;padding:12px;border-radius:8px;border:1px solid var(--card-border);max-height:200px;overflow-y:auto"></div>
+
+        <!-- FULL-WIDTH defects table -->
+        <div class="chart" style="grid-column:1 / -1">
+          <div class="h">📊 Defects (by Story Name)</div>
+          <div id="defectsByStoryChart" class="chart-body"></div>
         </div>
-        <div class="chart"><div class="h">🐛 Defects by Status</div><div id="defectStatusChart" class="chart-body"></div></div>
+
         <div class="chart"><div class="h">💥 Defects by Story Impact</div><div id="defectImpactChart" class="chart-body"></div></div>
-        <div class="chart"><div class="h">📊 Defects by Story</div><div id="defectsByStoryChart" class="chart-body"></div></div>
+        <div class="chart"><div class="h">🐛 Defects by Status</div><div id="defectStatusChart" class="chart-body"></div></div>
         <div class="chart"><div class="h">⚠️ Defect Trend Analysis</div><div id="defectTrendChart" class="chart-body"></div></div>
       </div>
     </div>
@@ -289,7 +295,7 @@ function readExcel(file){
   });
 }
 
-/* ---------- Parse (B..W columns) with carry-forward ---------- */
+/* ---------- Parse (B..X columns) with carry-forward ---------- */
 function parseData(workbook){
   const ws = workbook.Sheets[workbook.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
@@ -360,10 +366,12 @@ function parseData(workbook){
       executions.push({ storyNumber: currentStoryNumber, storyName: currentStoryName, tcName, tceNum, execAssigned });
     }
 
+    // --- defects (T..X) ---
     const defectName       = String(r[19]||'').trim(); // T
     const defectNum        = String(r[20]||'').trim(); // U
     const defectCreatedBy  = String(r[21]||'').trim(); // V
     const defectStatus     = String(r[22]||'').trim(); // W
+    const defectAssignedTo = String(r[23]||'').trim(); // X
 
     if (defectNum || defectName){
       defects.push({
@@ -371,7 +379,8 @@ function parseData(workbook){
         storyName  : currentStoryName,
         tcName, tceNum,
         defectNum, defectName,
-        defectStatus, defectCreatedBy
+        defectStatus, defectCreatedBy,
+        defectAssignedTo
       });
     }
   }
@@ -407,6 +416,20 @@ function calculateMetrics(data){
     if (e.tceNum || (e.execAssigned && e.execAssigned.trim())){
       const who = (e.execAssigned && e.execAssigned.trim()) || '(unassigned)';
       execAssigneeDist[who]=(execAssigneeDist[who]||0)+1;
+    }
+  }
+
+  // (kept for potential future use)
+  const defectCreatorDist = {};
+  const defectAssigneeDist = {};
+  for (const d of defects){
+    if (d.defectCreatedBy && d.defectCreatedBy.trim()){
+      const who = d.defectCreatedBy.trim();
+      defectCreatorDist[who] = (defectCreatorDist[who] || 0) + 1;
+    }
+    if (d.defectAssignedTo && d.defectAssignedTo.trim()){
+      const asg = d.defectAssignedTo.trim();
+      defectAssigneeDist[asg] = (defectAssigneeDist[asg] || 0) + 1;
     }
   }
 
@@ -482,9 +505,11 @@ function renderDashboard(){
 
   const testCasesByStory = {};
   globalData.testCases.forEach(tc => {
-    if (tc.storyNumber) testCasesByStory[tc.storyNumber]=(testCasesByStory[tc.storyNumber]||0)+1;
+    if (tc.storyName) testCasesByStory[tc.storyName]=(testCasesByStory[tc.storyName]||0)+1;
   });
-  renderChart('testCasesByStoryChart', testCasesByStory, {});
+  // show full story name (no truncation)
+  renderChart('testCasesByStoryChart', testCasesByStory, {}, { noTruncate:true });
+
   renderChart('execByAssigneeChart', metrics.execAssigneeDist, {});
   if (gid('testWorkloadChart')) renderTestWorkloadBalance('testWorkloadChart', metrics.execAssigneeDist);
   if (gid('testCoverageHeatmapChart')) renderTestCoverageHeatmap('testCoverageHeatmapChart');
@@ -516,12 +541,8 @@ function renderDashboard(){
   });
   renderChart('defectImpactChart', defectImpactDist, {'Critical':'#dc2626','High':'#ea580c','Medium':'#f59e0b','Low':'#10b981'});
 
-  const defectsByStory = {};
-  globalData.defects.forEach(d => {
-    if (d.storyNumber) defectsByStory[d.storyNumber]=(defectsByStory[d.storyNumber]||0)+1;
-  });
-  renderChart('defectsByStoryChart', defectsByStory, {});
-  if (gid('defectTrendChart')) renderDefectTrend('defectTrendChart');
+  // Full-width Defects table by Story Name (now includes Status)
+  renderDefectsTable('defectsByStoryChart');
 
   // Data quality
   renderDataQuality();
@@ -542,22 +563,25 @@ function renderWorkloadList(containerId, workloadData, templateFn){
   container.innerHTML = sorted.map(([name,count])=>templateFn(name,count)).join('');
 }
 
-function renderChart(containerId, data, colors){
+/* UPDATED: renderChart now supports opts.noTruncate to keep full labels */
+function renderChart(containerId, data, colors, opts={}){
   const container = gid(containerId);
   if (!container) return;
   const entries = Object.entries(data||{});
   if (!entries.length){ container.innerHTML='<div class="small" style="text-align:center;padding:20px">No data</div>'; return; }
   const max = Math.max(...entries.map(e=>e[1]));
   let html='<div style="padding:8px">';
+  const noTruncate = !!opts.noTruncate;
+
   entries.sort((a,b)=>b[1]-a[1]).forEach(([key,val])=>{
     const pct = max>0 ? (val/max)*100 : 0;
     const color = (colors && colors[key]) || '#6366f1';
-    const label = key.length>48 ? key.slice(0,48)+'…' : key;
+    const label = noTruncate ? key : (key.length>48 ? key.slice(0,48)+'…' : key);
     html += `
       <div style="margin-bottom:10px">
-        <div style="display:flex;justify-content:space-between;margin-bottom:6px">
-          <span style="font-weight:600;color:#374151" title="${key}">${label}</span>
-          <span style="font-weight:800;color:#111827">${val}</span>
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px;gap:8px">
+          <span style="font-weight:600;color:#374151;word-break:break-word" title="${key}">${label}</span>
+          <span style="font-weight:800;color:#111827;white-space:nowrap">${val}</span>
         </div>
         <div style="background:${getComputedStyle(document.documentElement).getPropertyValue('--track') || '#e5e7eb'};border-radius:6px;height:10px">
           <div style="background:${color};height:100%;width:${pct}%;border-radius:6px"></div>
@@ -565,6 +589,56 @@ function renderChart(containerId, data, colors){
       </div>`;
   });
   html+='</div>'; container.innerHTML=html;
+}
+
+/* Render a table of defects by Story Name (full width, includes Status) */
+function renderDefectsTable(containerId){
+  const container = gid(containerId);
+  if (!container) return;
+
+  const defects = globalData.defects || [];
+  if (!defects.length){
+    container.innerHTML = '<div class="small" style="text-align:center;padding:20px">No defect data</div>';
+    return;
+  }
+
+  // Sort primarily by Story Name, secondarily by Defect Number (asc)
+  const rows = defects
+    .map(d => ({
+      storyName: d.storyName || (globalData.stories.find(s=>s.storyNumber===d.storyNumber)?.storyName) || '(Unknown story)',
+      defectNum: d.defectNum || d.defectName || '',
+      createdBy: d.defectCreatedBy || '',
+      assignedTo: d.defectAssignedTo || '',
+      status: d.defectStatus || ''
+    }))
+    .sort((a,b)=>{
+      const s = a.storyName.localeCompare(b.storyName);
+      if (s !== 0) return s;
+      return (a.defectNum||'').toString().localeCompare((b.defectNum||'').toString(), undefined, {numeric:true});
+    });
+
+  // Build table
+  let html = '<div style="max-height:480px;overflow:auto;border:1px solid var(--card-border);border-radius:6px">';
+  html += '<table><thead><tr>' +
+          '<th style="width:32%">Story Name</th>' +
+          '<th style="width:18%">Defect Number</th>' +
+          '<th style="width:18%">Created By</th>' +
+          '<th style="width:18%">Assigned To</th>' +
+          '<th style="width:14%">Status</th>' +
+          '</tr></thead><tbody>';
+
+  rows.forEach(r=>{
+    html += `<tr>
+      <td>${escapeHtml(r.storyName)}</td>
+      <td>${escapeHtml(r.defectNum)}</td>
+      <td>${escapeHtml(r.createdBy)}</td>
+      <td>${escapeHtml(r.assignedTo)}</td>
+      <td>${escapeHtml(r.status)}</td>
+    </tr>`;
+  });
+
+  html += '</tbody></table></div>';
+  container.innerHTML = html;
 }
 
 /* Balanced workload bar list (light) */
@@ -706,6 +780,13 @@ function renderDataQuality(){
     html += `<div class="success" style="margin-bottom:8px">✅ All executions have assignees</div>`;
   }
 
+  const defectsWithoutAssignee = defects.filter(d => (d.defectNum || d.defectName) && !d.defectAssignedTo);
+  if (defectsWithoutAssignee.length){
+    html += `<div class="warn" style="margin-bottom:8px"><strong>${defectsWithoutAssignee.length}</strong> defects without assignees</div>`;
+  } else {
+    html += `<div class="success" style="margin-bottom:8px">✅ All defects have assignees</div>`;
+  }
+
   const highImpactNoTests = stories.filter(s => (s.impact==='Critical'||s.impact==='High') && !testCases.some(tc => tc.storyNumber===s.storyNumber && tc.tcName));
   if (highImpactNoTests.length){
     html += `<div class="issue" style="margin-bottom:8px"><strong>${highImpactNoTests.length}</strong> high/critical impact stories without test cases
@@ -773,6 +854,16 @@ async function copyEmailBody(){
   }else{
     const win=window.open('','_blank'); win.document.write(html); win.document.close();
   }
+}
+
+/* util: basic HTML escape for table cells */
+function escapeHtml(str){
+  return String(str ?? '')
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#39;');
 }
 </script>
 </body>
