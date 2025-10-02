@@ -125,12 +125,11 @@
   <div class="upload">
     <div class="upload-area" onclick="document.getElementById('fileInput').click()">
       <div style="font-size:2rem">📁</div>
-      <div style="font-weight:700;margin-top:6px">Click to upload Excel file(s)</div>
-      <div class="small">Supports .xlsx and .xls files - Select multiple files to compare</div>
-      <input id="fileInput" type="file" accept=".xlsx,.xls" multiple style="display:none"/>
+      <div style="font-weight:700;margin-top:6px">Click to upload Excel file</div>
+      <div class="small">Supports .xlsx and .xls files with your data structure</div>
+      <input id="fileInput" type="file" accept=".xlsx,.xls" style="display:none"/>
     </div>
     <div id="processing" class="processing"><span class="spinner"></span>Processing data...</div>
-    <div id="uploadedFiles" style="margin-top:10px;display:none"></div>
     <div id="error" class="error"></div>
   </div>
 
@@ -226,12 +225,6 @@
       </div>
     </div>
 
-    <!-- COMPARISON SECTION (only shown when multiple files) -->
-    <div id="comparisonSection" class="section" style="display:none">
-      <div class="title">📊 File Comparison Analysis</div>
-      <div id="comparisonContainer"></div>
-    </div>
-
     <!-- DATA QUALITY -->
     <div class="section">
       <div class="title">✅ Data Quality Analysis</div>
@@ -252,13 +245,11 @@
 <script>
 let globalData = { stories:[], testCases:[], executions:[], defects:[] };
 let metrics = {};
-let allFileData = []; // Store data from all uploaded files
-let fileComparison = null;
 
 document.addEventListener('DOMContentLoaded', () => {
   const fileInput = document.getElementById('fileInput');
   fileInput.addEventListener('change', e => {
-    if (e.target.files.length) processFiles(Array.from(e.target.files));
+    if (e.target.files.length) processFile(e.target.files[0]);
   });
 });
 
@@ -268,61 +259,40 @@ function showError(msg){ const el=document.getElementById('error'); el.textConte
 function showDashboard(){ document.getElementById('dashboard').classList.add('show'); }
 
 /* ---------- File I/O ---------- */
-async function processFiles(files){
+async function processFile(file){
   showProcessing();
-  allFileData = [];
-  fileComparison = null;
-  
   try{
-    const uploadedFilesDiv = document.getElementById('uploadedFiles');
-    uploadedFilesDiv.style.display = 'block';
-    uploadedFilesDiv.innerHTML = `<div class="small">Processing ${files.length} file(s)...</div>`;
-    
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const workbook = await readExcel(file);
-      const data = parseData(workbook);
-      
-      // De-dupe test cases
-      const dedupedTC = Array.from(
-        new Map((data.testCases||[]).map(tc => [`${tc.storyNumber}||${tc.tcName}`, tc])).values()
-      );
-      data.testCases = dedupedTC;
-      
-      const fileMetrics = calculateMetrics(data);
-      
-      allFileData.push({
-        fileName: file.name,
-        data: data,
-        metrics: fileMetrics,
-        uploadDate: new Date()
-      });
-    }
-    
-    // Use the most recent file as the primary data
-    const primaryFile = allFileData[allFileData.length - 1];
-    globalData = primaryFile.data;
-    metrics = primaryFile.metrics;
-    
-    // Generate comparison if multiple files
-    if (allFileData.length > 1) {
-      fileComparison = generateComparison();
-    }
-    
+    const workbook = await readExcel(file);
+    const data = parseData(workbook);
+
+    // (Optional) de-dupe test cases by storyNumber + tcName
+    const dedupedTC = Array.from(
+      new Map((data.testCases||[]).map(tc => [`${tc.storyNumber}||${tc.tcName}`, tc])).values()
+    );
+    data.testCases = dedupedTC;
+
+    globalData = data;
+    metrics = calculateMetrics(data);
     renderDashboard();
-    renderUploadedFiles();
-    if (fileComparison) renderComparison();
-    
     hideProcessing();
     showDashboard();
   }catch(err){
     hideProcessing();
-    showError('Error processing file(s): ' + err.message);
+    showError('Error processing file: ' + err.message);
   }
 }
 
-async function processFile(file){
-  return processFiles([file]);
+function readExcel(file){
+  return new Promise((resolve,reject)=>{
+    const reader = new FileReader();
+    reader.onload = e => {
+      try{
+        resolve(XLSX.read(new Uint8Array(e.target.result), {type:'array'}));
+      }catch(err){ reject(err); }
+    };
+    reader.onerror = reject;
+    reader.readAsArrayBuffer(file);
+  });
 }
 
 /* ---------- Parse (B..X columns) with carry-forward ---------- */
