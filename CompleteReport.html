@@ -680,6 +680,49 @@ function renderDashboard(){
   if (fileComparison) renderComparison();
 }
 
+// Move renderTestCoverageHeatmap definition above any usage (before renderDashboard)
+function renderTestCoverageHeatmap(containerId){
+  const container = gid(containerId);
+  if (!container) return;
+  const stories = globalData.stories||[];
+  if (!stories.length){ container.innerHTML='<div class="small" style="text-align:center;padding:20px">No story data</div>'; return; }
+
+  // build tests per story
+  const testCasesByStory = {};
+  (globalData.testCases||[]).forEach(tc => {
+    if (tc.storyNumber) testCasesByStory[tc.storyNumber]=(testCasesByStory[tc.storyNumber]||0)+1;
+  });
+
+  const sprintCoverage = {};
+  stories.forEach(s=>{
+    const sprint = s.sprint || 'No Sprint';
+    const tests = testCasesByStory[s.storyNumber]||0;
+    sprintCoverage[sprint] = sprintCoverage[sprint] || { stories:0, withTests:0, totalTests:0 };
+    sprintCoverage[sprint].stories++;
+    sprintCoverage[sprint].totalTests += tests;
+    if (tests>0) sprintCoverage[sprint].withTests++;
+  });
+
+  // Convert to donut chart data with coverage-based colors
+  const donutData = {};
+  const colors = {};
+  Object.entries(sprintCoverage).forEach(([sprint, d]) => {
+    const cov = d.stories > 0 ? (d.withTests / d.stories) * 100 : 0;
+    donutData[sprint] = d.totalTests;
+    colors[sprint] = cov >= 80 ? '#10b981' : cov >= 60 ? '#f59e0b' : '#ef4444';
+  });
+
+  renderDonutChart(containerId, donutData, colors);
+
+  // Add coverage summary
+  const totalStories = Object.values(sprintCoverage).reduce((sum, d) => sum + d.stories, 0);
+  const totalWithTests = Object.values(sprintCoverage).reduce((sum, d) => sum + d.withTests, 0);
+  const overallCoverage = totalStories > 0 ? (totalWithTests / totalStories * 100).toFixed(1) : '0.0';
+
+  const summaryInfo = `<div class="small" style="padding:8px;text-align:center;border-top:1px solid #e5e7eb;margin-top:8px">Overall Coverage: <strong>${overallCoverage}%</strong> (${totalWithTests}/${totalStories} stories)</div>`;
+  container.innerHTML += summaryInfo;
+}
+
 /* Small DOM helpers */
 function gid(id){ return document.getElementById(id); }
 function setTxt(id, val){ const el=gid(id); if (el) el.textContent = (val ?? '') }
@@ -966,39 +1009,39 @@ async function copyEmailBody(){
   const restoreScroll = expandScrollableForCapture();
 
   // Capture metrics and ALL sections so nothing is clipped
-  const metr = await capture(document.querySelector('.metrics'));
+  const metr = await capture(document.querySelector('.metrics'), 3); // scale up for higher resolution
   const sections = Array.from(document.querySelectorAll('.section'));
   const sectionShots = [];
   for (const sec of sections){
-    sectionShots.push(await capture(sec));
+    sectionShots.push(await capture(sec, 3)); // scale up for higher resolution
   }
 
   // Restore UI state
   restoreScroll();
   keep.forEach(k=>k.el.style.display=k.display||'');
 
-  const W = 900; // Increased width for better readability
+  const W = 1200; // Increased width for better readability
 
-  // More readable image function
-  const img = (src,w,mb=16)=>`<img src="${src}" width="${w}" style="display:block;width:${w}px;height:auto;border:1px solid #e5e7eb;border-radius:6px;margin:0 0 ${mb}px 0"/>`;
+  // Larger image function
+  const img = (src,w,mb=32)=>`<img src="${src}" width="${w}" style="display:block;width:${w}px;height:auto;border:2px solid #e5e7eb;border-radius:10px;margin:0 0 ${mb}px 0"/>`;
 
   // Build email HTML with improved font size and layout
   let html = `
-  <!doctype html><html><body style="margin:0;padding:0;background:#fff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.5">
-    <div style="padding:18px;margin:0 auto;max-width:${W}px">
-      <div style="background:linear-gradient(135deg,#f8fafc,#e2e8f0);color:#111827;padding:16px;border-radius:8px;border:1px solid #e5e7eb;margin-bottom:18px">
-        <div style="font-weight:800;font-size:1.6rem;margin-bottom:4px">📊 Release Progress Report</div>
-        <div style="font-size:1rem;color:#6b7280">Generated ${new Date().toLocaleString()}</div>
+  <!doctype html><html><body style="margin:0;padding:0;background:#fff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.7">
+    <div style="padding:32px;margin:0 auto;max-width:${W}px">
+      <div style="background:linear-gradient(135deg,#f8fafc,#e2e8f0);color:#111827;padding:24px;border-radius:14px;border:2px solid #e5e7eb;margin-bottom:32px">
+        <div style="font-weight:800;font-size:2.2rem;margin-bottom:10px">📊 Release Progress Report</div>
+        <div style="font-size:1.2rem;color:#6b7280">Generated ${new Date().toLocaleString()}</div>
       </div>
       
-      <div style="margin-bottom:20px">
-        <h3 style="margin:0 0 10px 0;color:#111827;font-size:1.2rem;font-weight:700">📈 Key Metrics</h3>
-        ${img(metr,W-40,18)}
+      <div style="margin-bottom:36px">
+        <h3 style="margin:0 0 18px 0;color:#111827;font-size:1.5rem;font-weight:700">📈 Key Metrics</h3>
+        ${img(metr,W-80,36)}
       </div>
 
-      <div style="margin-bottom:20px;padding:14px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px">
-        <div style="font-weight:700;color:#111827;margin-bottom:6px;font-size:1.05rem">📋 Executive Summary</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:1rem">
+      <div style="margin-bottom:36px;padding:24px;background:#f9fafb;border:2px solid #e5e7eb;border-radius:14px">
+        <div style="font-weight:700;color:#111827;margin-bottom:12px;font-size:1.3rem">📋 Executive Summary</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;font-size:1.15rem">
           <div><strong>Completion:</strong> ${metrics.completion}%</div>
           <div><strong>Stories:</strong> ${metrics.totalStories}</div>
           <div><strong>Test Coverage:</strong> ${metrics.coverage}%</div>
@@ -1013,17 +1056,17 @@ async function copyEmailBody(){
     if (sectionTitle.includes('Export Options')) return '';
     if (sectionTitle.includes('Differences Between Uploaded Files') && !fileComparison) return '';
     return `
-      <div style="margin-bottom:18px">
-        <h3 style="margin:0 0 10px 0;color:#111827;font-size:1.1rem;font-weight:700">${sectionTitle}</h3>
-        ${img(shot,W-40,12)}
+      <div style="margin-bottom:36px">
+        <h3 style="margin:0 0 18px 0;color:#111827;font-size:1.3rem;font-weight:700">${sectionTitle}</h3>
+        ${img(shot,W-80,24)}
       </div>`;
   }).join('');
 
   // Add action items
   html += `
-    <div style="margin-top:20px;padding:14px;background:#fef3c7;border:1px solid #fbbf24;border-radius:8px">
-      <div style="font-weight:700;color:#92400e;margin-bottom:8px;font-size:1.05rem">⚠️ Key Action Items</div>
-      <div style="font-size:1rem;color:#92400e">
+    <div style="margin-top:36px;padding:24px;background:#fef3c7;border:2px solid #fbbf24;border-radius:14px">
+      <div style="font-weight:700;color:#92400e;margin-bottom:14px;font-size:1.2rem">⚠️ Key Action Items</div>
+      <div style="font-size:1.15rem;color:#92400e">
         ${metrics.completion < 80 ? `• ${(100-metrics.completion).toFixed(1)}% of stories still need completion<br>` : ''}
         ${metrics.coverage < 90 ? `• ${(100-metrics.coverage).toFixed(1)}% gap in test coverage<br>` : ''}
         ${metrics.totalDef > 0 ? `• ${metrics.totalDef} defects require attention<br>` : ''}
@@ -1037,12 +1080,12 @@ async function copyEmailBody(){
   // Add comparison section only if more than one file is uploaded
   if (fileComparison) {
     html += `
-      <div style="margin-top:24px;padding:14px;background:#f1f5f9;border-radius:8px;border:1px solid #e5e7eb">
-        <div style="font-weight:700;color:#1e293b;margin-bottom:8px;font-size:1.05rem">📊 Differences Between Uploaded Files</div>
-        <div style="font-size:1rem;color:#374151">
+      <div style="margin-top:48px;padding:24px;background:#f1f5f9;border-radius:14px;border:2px solid #e5e7eb">
+        <div style="font-weight:700;color:#1e293b;margin-bottom:14px;font-size:1.2rem">📊 Differences Between Uploaded Files</div>
+        <div style="font-size:1.15rem;color:#374151">
           <strong>Base file:</strong> ${fileComparison.baseFile}<br>
           <strong>Compared to:</strong> ${fileComparison.currentFile}<br>
-          <div style="margin-top:8px">
+          <div style="margin-top:14px">
             ${Object.entries(fileComparison.metrics).map(([k,v])=>`
               <div>${k}: ${v.base} → ${v.current} (${v.diff>0?'+':''}${v.diff})</div>
             `).join('')}
@@ -1054,8 +1097,8 @@ async function copyEmailBody(){
 
   // Footer
   html += `
-    <div style="margin-top:24px;padding:10px;background:#f1f5f9;border-radius:6px;text-align:center">
-      <div style="font-size:1rem;color:#6b7280">
+    <div style="margin-top:48px;padding:18px;background:#f1f5f9;border-radius:10px;text-align:center">
+      <div style="font-size:1.15rem;color:#6b7280">
         Report generated on ${new Date().toLocaleDateString()} • 
         Data includes ${metrics.totalStories} stories, ${metrics.totalTC} test cases, ${metrics.totalExec} executions
       </div>
@@ -1073,65 +1116,7 @@ async function copyEmailBody(){
   }
 }
 
-/* Balanced workload bar list (light) */
-function renderTestWorkloadBalance(containerId, execAssigneeDist){
-  const container = gid(containerId);
-  if (!container) return;
-  const entries = Object.entries(execAssigneeDist||{});
-  if (!entries.length){ container.innerHTML='<div class="small" style="text-align:center;padding:20px">No execution data</div>'; return; }
-  const values = entries.map(([_,v])=>v);
-  const avg = values.reduce((a,b)=>a+b,0)/values.length;
-  const max = Math.max(...values);
-
-  let html = '<div style="padding:8px">';
-  html += `<div class="small" style="margin-bottom:8px">Average: <strong>${avg.toFixed(1)}</strong> executions</div>`;
-
-  entries.sort((a,b)=>b[1]-a[1]).forEach(([name,count])=>{
-    const pct = (count/max)*100;
-    const isOver = count > avg*1.5, isUnder = count < avg*0.5;
-    const color = isOver ? '#ef4444' : isUnder ? '#f59e0b' : '#10b981';
-    html += `
-      <div style="margin-bottom:10px">
-        <div style="display:flex;justify-content:space-between;margin-bottom:6px">
-          <span style="font-weight:600;color:#111827;font-size:0.9rem">${name}</span>
-          <span style="color:${color};font-weight:800">${count}</span>
-        </div>
-        <div style="background:#e5e7eb;border-radius:6px;height:8px">
-          <div style="background:${color};height:100%;width:${pct}%;border-radius:6px"></div>
-        </div>
-      </div>`;
-  });
-  html+='</div>'; container.innerHTML=html;
-}
-
-/* Test workload balance as donut */
-function renderTestWorkloadBalanceDonut(containerId, execAssigneeDist){
-  const container = gid(containerId);
-  if (!container) return;
-  const entries = Object.entries(execAssigneeDist||{});
-  if (!entries.length){ container.innerHTML='<div class="small" style="text-align:center;padding:20px">No execution data</div>'; return; }
-  
-  const values = entries.map(([_,v])=>v);
-  const avg = values.reduce((a,b)=>a+b,0)/values.length;
-  
-  // Color code based on workload balance
-  const coloredData = {};
-  const colors = {};
-  entries.forEach(([name, count]) => {
-    const isOver = count > avg*1.5;
-    const isUnder = count < avg*0.5;
-    coloredData[name] = count;
-    colors[name] = isOver ? '#ef4444' : isUnder ? '#f59e0b' : '#10b981';
-  });
-  
-  renderDonutChart(containerId, coloredData, colors);
-  
-  // Add average info
-  const avgInfo = `<div class="small" style="padding:8px;text-align:center;border-top:1px solid #e5e7eb;margin-top:8px">Average: <strong>${avg.toFixed(1)}</strong> executions</div>`;
-  container.innerHTML += avgInfo;
-}
-
-/* Render donut chart */
+// Move renderDonutChart definition above any usage (before renderDashboard and renderTestWorkloadBalanceDonut)
 function renderDonutChart(containerId, data, colors, opts={}){
   const container = gid(containerId);
   if (!container) return;
@@ -1224,86 +1209,31 @@ function renderDonutChart(containerId, data, colors, opts={}){
     </div>`;
 }
 
-/* Heatmap per sprint using computed testCasesByStory (light) */
-function renderTestCoverageHeatmap(containerId){
+/* Test workload balance as donut */
+function renderTestWorkloadBalanceDonut(containerId, execAssigneeDist){
   const container = gid(containerId);
   if (!container) return;
-  const stories = globalData.stories||[];
-  if (!stories.length){ container.innerHTML='<div class="small" style="text-align:center;padding:20px">No story data</div>'; return; }
-
-  // build tests per story
-  const testCasesByStory = {};
-  (globalData.testCases||[]).forEach(tc => {
-    if (tc.storyNumber) testCasesByStory[tc.storyNumber]=(testCasesByStory[tc.storyNumber]||0)+1;
-  });
-
-  const sprintCoverage = {};
-  stories.forEach(s=>{
-    const sprint = s.sprint || 'No Sprint';
-    const tests = testCasesByStory[s.storyNumber]||0;
-    sprintCoverage[sprint] = sprintCoverage[sprint] || { stories:0, withTests:0, totalTests:0 };
-    sprintCoverage[sprint].stories++;
-    sprintCoverage[sprint].totalTests += tests;
-    if (tests>0) sprintCoverage[sprint].withTests++;
-  });
-
-  // Convert to donut chart data with coverage-based colors
-  const donutData = {};
+  const entries = Object.entries(execAssigneeDist||{});
+  if (!entries.length){ container.innerHTML='<div class="small" style="text-align:center;padding:20px">No execution data</div>'; return; }
+  
+  const values = entries.map(([_,v])=>v);
+  const avg = values.reduce((a,b)=>a+b,0)/values.length;
+  
+  // Color code based on workload balance
+  const coloredData = {};
   const colors = {};
-  Object.entries(sprintCoverage).forEach(([sprint, d]) => {
-    const cov = d.stories > 0 ? (d.withTests / d.stories) * 100 : 0;
-    donutData[sprint] = d.totalTests;
-    colors[sprint] = cov >= 80 ? '#10b981' : cov >= 60 ? '#f59e0b' : '#ef4444';
+  entries.forEach(([name, count]) => {
+    const isOver = count > avg*1.5;
+    const isUnder = count < avg*0.5;
+    coloredData[name] = count;
+    colors[name] = isOver ? '#ef4444' : isUnder ? '#f59e0b' : '#10b981';
   });
-
-  renderDonutChart(containerId, donutData, colors);
   
-  // Add coverage summary
-  const totalStories = Object.values(sprintCoverage).reduce((sum, d) => sum + d.stories, 0);
-  const totalWithTests = Object.values(sprintCoverage).reduce((sum, d) => sum + d.withTests, 0);
-  const overallCoverage = totalStories > 0 ? (totalWithTests / totalStories * 100).toFixed(1) : '0.0';
+  renderDonutChart(containerId, coloredData, colors);
   
-  const summaryInfo = `<div class="small" style="padding:8px;text-align:center;border-top:1px solid #e5e7eb;margin-top:8px">Overall Coverage: <strong>${overallCoverage}%</strong> (${totalWithTests}/${totalStories} stories)</div>`;
-  container.innerHTML += summaryInfo;
-}
-
-/* Defect trend grouped by story impact (light) */
-function renderDefectTrend(containerId){
-  const container = gid(containerId);
-  if (!container) return;
-  const defects = globalData.defects||[];
-  if (!defects.length){ container.innerHTML='<div class="small" style="text-align:center;padding:20px">No defect data</div>'; return; }
-
-  const trend = {};
-  defects.forEach(d=>{
-    const s = globalData.stories.find(x=>x.storyNumber===d.storyNumber);
-    const impact = s?.impact || 'Unknown';
-    const key = `${impact} Impact`;
-    trend[key] = trend[key] || { total:0, open:0, critical:0 };
-    trend[key].total++;
-    if (d.defectStatus !== 'Closed' && d.defectStatus !== 'Resolved') trend[key].open++;
-    if (impact === 'Critical') trend[key].critical++;
-  });
-
-  let html = '<div style="padding:8px">';
-  Object.entries(trend).sort((a,b)=>b[1].total-a[1].total).forEach(([cat,d])=>{
-    const openPct = d.total>0 ? (d.open/d.total)*100 : 0;
-    const color = openPct>50? '#ef4444' : openPct>25? '#f59e0b' : '#10b981';
-    html += `
-      <div style="margin-bottom:10px;padding:10px;background:#ffffff;border:1px solid #e5e7eb;border-radius:8px">
-        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-          <span style="font-weight:700;color:#111827">${cat}</span>
-          <span style="color:${color};font-weight:800">${d.total} total</span>
-        </div>
-        <div class="small">
-          ${d.open} open (${openPct.toFixed(1)}%) • ${d.critical} critical
-        </div>
-        <div style="background:#e5e7eb;border-radius:6px;height:6px;margin-top:6px">
-          <div style="background:${color};height:100%;width:${openPct}%;border-radius:6px"></div>
-        </div>
-      </div>`;
-  });
-  html += '</div>'; container.innerHTML=html;
+  // Add average info
+  const avgInfo = `<div class="small" style="padding:8px;text-align:center;border-top:1px solid #e5e7eb;margin-top:8px">Average: <strong>${avg.toFixed(1)}</strong> executions</div>`;
+  container.innerHTML += avgInfo;
 }
 
 /* ---------- Comparison Rendering ---------- */
@@ -1409,13 +1339,6 @@ function renderComparison() {
         <div style="font-size:0.85rem">${cmp.newDefects.map(d=>`• ${d.storyNumber}: ${d.defectNum||d.defectName}`).join('<br>')}</div>` : ''}
       ${cmp.removedDefects.length ? `<div style="font-weight:600;color:#10b981;margin-top:8px;margin-bottom:4px">Removed Defects:</div>
         <div style="font-size:0.85rem">${cmp.removedDefects.map(d=>`• ${d.storyNumber}: ${d.defectNum||d.defectName}`).join('<br>')}</div>` : ''}
-    </div>
-  `;
-  container.innerHTML = html;
-}
-</script>
-</body>
-</html>
     </div>
   `;
   container.innerHTML = html;
