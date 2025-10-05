@@ -1051,25 +1051,16 @@ async function copyEmailBody(){
   let html = `
   <!doctype html><html><body style="margin:0;padding:0;background:#fff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.7">
     <div style="padding:32px;margin:0 auto;max-width:${W}px">
-      <div style="background:linear-gradient(135deg,#f8fafc,#e2e8f0);color:#111827;padding:24px;border-radius:14px;border:2px solid #e5e7eb;margin-bottom:32px">
+      <div style="background:linear-gradient(135deg,#f8fafc,#e2e8f0);color:#111827;padding:24px;border-radius:14px;border:2px solid #e5e7eb;margin-bottom:64px;text-align:center">
         <div style="font-weight:800;font-size:2.2rem;margin-bottom:10px">📊 Release Progress Report</div>
-        <div style="font-size:1.2rem;color:#6b7280">Generated ${new Date().toLocaleString()}</div>
+        <div style="font-size:1.2rem;color:#6b7280">Generated ${new Date().toLocaleString()}<br><br></div>
       </div>
       
       <div style="margin-bottom:36px">
         <h3 style="margin:0 0 18px 0;color:#111827;font-size:1.5rem;font-weight:700">📈 Key Metrics</h3>
-        ${img(metr,W-80,36)}
+        ${img(metr,W-80,36)}<br><br>
       </div>
 
-      <div style="margin-bottom:36px;padding:24px;background:#f9fafb;border:2px solid #e5e7eb;border-radius:14px">
-        <div style="font-weight:700;color:#111827;margin-bottom:12px;font-size:1.3rem">📋 Executive Summary</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;font-size:1.15rem">
-          <div><strong>Completion:</strong> ${metrics.completion}%</div>
-          <div><strong>Stories:</strong> ${metrics.totalStories}</div>
-          <div><strong>Test Coverage:</strong> ${metrics.coverage}%</div>
-          <div><strong>Defects:</strong> ${metrics.totalDef}</div>
-        </div>
-      </div>
   `;
 
   // Add main sections (User Stories, Test Cases, Defects, Data Quality)
@@ -1080,15 +1071,15 @@ async function copyEmailBody(){
     return `
       <div style="margin-bottom:36px">
         <h3 style="margin:0 0 18px 0;color:#111827;font-size:1.3rem;font-weight:700">${sectionTitle}</h3>
-        ${img(shot,W-80,24)}
+        ${img(shot,W-80,24)}<br><br>
       </div>`;
   }).join('');
 
   // Add action items
   html += `
     <div style="margin-top:36px;padding:24px;background:#fef3c7;border:2px solid #fbbf24;border-radius:14px">
-      <div style="font-weight:700;color:#92400e;margin-bottom:14px;font-size:1.2rem">⚠️ Key Action Items</div>
-      <div style="font-size:1.15rem;color:#92400e">
+      <div style="font-weight:300;color:#92400e;margin-bottom:14px;font-size:0.4rem">⚠️ Key Action Items</div>
+      <div style="font-size:0.75rem;font-weight:200;line-height:1.6;color:#92400e"><br>
         ${metrics.completion < 80 ? `• ${(100-metrics.completion).toFixed(1)}% of stories still need completion<br>` : ''}
         ${metrics.coverage < 90 ? `• ${(100-metrics.coverage).toFixed(1)}% gap in test coverage<br>` : ''}
         ${metrics.totalDef > 0 ? `• ${metrics.totalDef} defects require attention<br>` : ''}
@@ -1120,7 +1111,7 @@ async function copyEmailBody(){
   // Footer
   html += `
     <div style="margin-top:48px;padding:18px;background:#f1f5f9;border-radius:10px;text-align:center">
-      <div style="font-size:1.15rem;color:#6b7280">
+      <div style="font-size:1.15rem;color:#6b7280"><br><br>
         Report generated on ${new Date().toLocaleDateString()} • 
         Data includes ${metrics.totalStories} stories, ${metrics.totalTC} test cases, ${metrics.totalExec} executions
       </div>
