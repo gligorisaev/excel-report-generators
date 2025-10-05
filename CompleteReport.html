@@ -1053,7 +1053,7 @@ async function copyEmailBody(){
     <div style="padding:32px;margin:0 auto;max-width:${W}px">
       <div style="background:linear-gradient(135deg,#f8fafc,#e2e8f0);color:#111827;padding:24px;border-radius:14px;border:2px solid #e5e7eb;margin-bottom:64px;text-align:center">
         <div style="font-weight:800;font-size:2.2rem;margin-bottom:10px">📊 Release Progress Report</div>
-        <div style="font-size:1.2rem;color:#6b7280">Generated ${new Date().toLocaleString()}<br><br></div>
+        <div style="font-size:1.2rem;color:#6b7280">Generated ${new Date().toLocaleString()}<br><br><br></div>
       </div>
       
       <div style="margin-bottom:36px">
@@ -1070,25 +1070,35 @@ async function copyEmailBody(){
     if (sectionTitle.includes('Differences Between Uploaded Files') && !fileComparison) return '';
     return `
       <div style="margin-bottom:36px">
-        <h3 style="margin:0 0 18px 0;color:#111827;font-size:1.3rem;font-weight:700">${sectionTitle}</h3>
         ${img(shot,W-80,24)}<br><br>
       </div>`;
   }).join('');
 
-  // Add action items
-  html += `
-    <div style="margin-top:36px;padding:24px;background:#fef3c7;border:2px solid #fbbf24;border-radius:14px">
-      <div style="font-weight:300;color:#92400e;margin-bottom:14px;font-size:0.4rem">⚠️ Key Action Items</div>
-      <div style="font-size:0.75rem;font-weight:200;line-height:1.6;color:#92400e"><br>
-        ${metrics.completion < 80 ? `• ${(100-metrics.completion).toFixed(1)}% of stories still need completion<br>` : ''}
-        ${metrics.coverage < 90 ? `• ${(100-metrics.coverage).toFixed(1)}% gap in test coverage<br>` : ''}
-        ${metrics.totalDef > 0 ? `• ${metrics.totalDef} defects require attention<br>` : ''}
-        ${globalData.stories.filter(s => !globalData.testCases.some(tc => tc.storyNumber===s.storyNumber && tc.tcName)).length > 0 ? 
-          `• ${globalData.stories.filter(s => !globalData.testCases.some(tc => tc.storyNumber===s.storyNumber && tc.tcName)).length} stories lack test cases<br>` : ''}
-        • Review defect resolution timelines
-      </div>
+// Add action items
+html += `
+  <div style="margin-top:36px;padding:24px;background:#fef3c7;border:2px solid #fbbf24;border-radius:14px">
+    <!-- Heading -->
+    <div style="font-weight:700;color:#92400e;margin-bottom:14px;font-size:1rem">⚠️ Key Action Items</div>
+
+    <!-- Body: smaller, normal weight -->
+    <div style="color:#92400e">
+      <ul style="margin:0;padding-left:18px;list-style-type:disc;
+                 font-size:13px; line-height:1.6; font-weight:400 !important; font-family:Arial, Helvetica, sans-serif;">
+        ${metrics.completion < 80 ? `<li style="font-weight:400 !important;">${(100-metrics.completion).toFixed(1)}% of stories still need completion</li>` : ''}
+        ${metrics.coverage   < 90 ? `<li style="font-weight:400 !important;">${(100-metrics.coverage).toFixed(1)}% gap in test coverage</li>` : ''}
+        ${metrics.totalDef   >  0 ? `<li style="font-weight:400 !important;">${metrics.totalDef} defects require attention</li>` : ''}
+        ${
+          (globalData.stories.filter(s => !globalData.testCases.some(tc => tc.storyNumber === s.storyNumber && tc.tcName)).length > 0)
+            ? `<li style="font-weight:400 !important;">${
+                globalData.stories.filter(s => !globalData.testCases.some(tc => tc.storyNumber===s.storyNumber && tc.tcName)).length
+              } stories lack test cases</li>` : ''
+        }
+        <li style="font-weight:400 !important;">Review defect resolution timelines</li>
+      </ul>
     </div>
-  `;
+  </div>
+`;
+
 
   // Add comparison section only if more than one file is uploaded
   if (fileComparison) {
