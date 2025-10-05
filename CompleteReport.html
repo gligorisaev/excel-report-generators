@@ -157,14 +157,15 @@
     <!-- MAIN METRICS -->
     <div class="metrics">
       <div class="card blue"><div class="icon">📋</div><div><div class="h">Total Stories</div><div id="mStories" class="v">0</div></div></div>
-      <div class="card green"><div class="icon">✅</div><div><div class="h">Ready for Prod</div><div id="mReady" class="v">0</div></div></div>
-      <div class="card purple"><div class="icon">🚧</div><div><div class="h">In Progress</div><div id="mInProg" class="v">0</div></div></div>
       <div class="card orange"><div class="icon">⚡</div><div><div class="h">Story Points</div><div id="mPoints" class="v">0</div></div></div>
       <div class="card teal"><div class="icon">🧪</div><div><div class="h">Test Cases</div><div id="mTC" class="v">0</div></div></div>
       <div class="card indigo"><div class="icon">🧾</div><div><div class="h">Executions</div><div id="mExec" class="v">0</div></div></div>
-      <div class="card red"><div class="icon">🐛</div><div><div class="h">Defects</div><div id="mDef" class="v">0</div></div></div>
+      <div class="card green"><div class="icon">✅</div><div><div class="h">Passed Executions</div><div id="mPassed" class="v">0</div></div></div>
+      <div class="card red"><div class="icon">❌</div><div><div class="h">Failed Executions</div><div id="mFailed" class="v">0</div></div></div>
+      <div class="card orange"><div class="icon">🚫</div><div><div class="h">Blocked Executions</div><div id="mBlocked" class="v">0</div></div></div>
       <div class="card pink"><div class="icon">📊</div><div><div class="h">Coverage</div><div id="mCov" class="v">0%</div></div></div>
       <div class="card gray"><div class="icon">🎯</div><div><div class="h">Completion</div><div id="mCompl" class="v">0%</div></div></div>
+      <div class="card red"><div class="icon">🐛</div><div><div class="h">Defects</div><div id="mDef" class="v">0</div></div></div>
     </div>
 
     <!-- SEGMENTED ANALYSIS -->
@@ -558,11 +559,18 @@ function calculateMetrics(data){
 function renderDashboard(){
   // Main cards
   setTxt('mStories', metrics.totalStories);
-  setTxt('mReady', metrics.readyForProd);
-  setTxt('mInProg', metrics.inProgress);
   setTxt('mPoints', metrics.totalPoints);
   setTxt('mTC', metrics.totalTC);
   setTxt('mExec', metrics.totalExec);
+
+  // Only declare these once
+  const passedExecutions = globalData.executions.filter(e => e.execStatus && e.execStatus.toLowerCase().includes('pass')).length;
+  const failedExecutions = globalData.executions.filter(e => e.execStatus && e.execStatus.toLowerCase().includes('fail')).length;
+  const blockedExecutions = globalData.executions.filter(e => e.execStatus && e.execStatus.toLowerCase().includes('block')).length;
+
+  setTxt('mPassed', passedExecutions);
+  setTxt('mFailed', failedExecutions);
+  setTxt('mBlocked', blockedExecutions);
   setTxt('mDef', metrics.totalDef);
   setTxt('mCov', metrics.coverage + '%');
   setTxt('mCompl', metrics.completion + '%');
@@ -591,11 +599,8 @@ function renderDashboard(){
   setTxt('execCoverage', metrics.testEfficiency + '%');
   const unassigned = globalData.executions.filter(e => !e.execAssigned && (e.tceNum || e.tcName)).length;
   setTxt('execUnassigned', unassigned);
-  const passedExecutions = globalData.executions.filter(e => e.execStatus && e.execStatus.toLowerCase().includes('pass')).length;
   setTxt('execPassed', passedExecutions);
-  const failedExecutions = globalData.executions.filter(e => e.execStatus && e.execStatus.toLowerCase().includes('fail')).length;
   setTxt('execFailed', failedExecutions);
-  const blockedExecutions = globalData.executions.filter(e => e.execStatus && e.execStatus.toLowerCase().includes('block')).length;
   setTxt('execBlocked', blockedExecutions);
   const execPerTest = metrics.totalTC>0 ? (metrics.totalExec/metrics.totalTC).toFixed(1) : '0.0';
   setTxt('execPerTest', execPerTest);
@@ -1129,12 +1134,19 @@ html += `
     </div>
   </body></html>`;
 
-  if (navigator.clipboard && window.ClipboardItem){
-    await navigator.clipboard.write([
-      new ClipboardItem({ "text/html": new Blob([html],{type:"text/html"}), "text/plain": new Blob([html.replace(/<[^>]+>/g,'')],{type:"text/plain"}) })
-    ]);
-    alert('Email body copied! Paste into your email client.');
-  }else{
+  // Clipboard API requires the document to be focused
+  if (navigator.clipboard && window.ClipboardItem && document.hasFocus && document.hasFocus()) {
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({ "text/html": new Blob([html],{type:"text/html"}), "text/plain": new Blob([html.replace(/<[^>]+>/g,'')],{type:"text/plain"}) })
+      ]);
+      alert('Email body copied! Paste into your email client.');
+    } catch (err) {
+      alert('Clipboard copy failed. Please click on the page and try again, or use the browser\'s copy function.');
+      // Optionally fallback to opening a new window
+      const win=window.open('','_blank'); win.document.write(html); win.document.close();
+    }
+  } else {
     const win=window.open('','_blank'); win.document.write(html); win.document.close();
   }
 }
@@ -1368,5 +1380,4 @@ function renderComparison() {
 }
 </script>
 </body>
-</html>
 </html>
