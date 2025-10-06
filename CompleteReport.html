@@ -260,8 +260,8 @@
 
         <!-- FULL-WIDTH defects table -->
         <div class="chart" style="grid-column:1 / -1">
-          <div class="chart-explainer">Lists all defects grouped by story name.</div>
-          <div class="h">📊 Defects (by Story Name)</div>
+          <div class="chart-explainer">Lists all defects by defect number (primary) with related story.</div>
+          <div class="h">📊 Defects (by Defect Number)</div>
           <div id="defectsByStoryChart" class="chart-body"></div>
         </div>
 
@@ -771,7 +771,7 @@ function renderChart(containerId, data, colors, opts={}){
   html+='</div>'; container.innerHTML=html;
 }
 
-/* Render a table of defects by Story Name (full width, includes Status) */
+/* Render a table of defects by Defect Number (full width, includes Status) */
 function renderDefectsTable(containerId){
   const container = gid(containerId);
   if (!container) return;
@@ -782,41 +782,42 @@ function renderDefectsTable(containerId){
     return;
   }
 
-  // Sort primarily by Story Name, secondarily by Defect Number (asc)
-  const rows = defects
-    .map(d => ({
-      storyName: d.storyName || (globalData.stories.find(s=>s.storyNumber===d.storyNumber)?.storyName) || '(Unknown story)',
-      defectNum: d.defectNum || d.defectName || '',
-      createdBy: d.defectCreatedBy || '',
-      assignedTo: d.defectAssignedTo || '',
-      status: d.defectStatus || ''
-    }))
-    .sort((a,b)=>{
-      const s = a.storyName.localeCompare(b.storyName);
-      if (s !== 0) return s;
-      return (a.defectNum||'').toString().localeCompare((b.defectNum||'').toString(), undefined, {numeric:true});
-    });
+  // Map + normalize
+  const rows = defects.map(d => ({
+    defectNum : d.defectNum || d.defectName || '',
+    storyName : d.storyName || (globalData.stories.find(s=>s.storyNumber===d.storyNumber)?.storyName) || '(Unknown story)',
+    createdBy : d.defectCreatedBy || '',
+    assignedTo: d.defectAssignedTo || '',
+    status    : d.defectStatus || ''
+  }));
 
-  // Build table with header row at the top
+  // Sort by defect number (natural) then story name
+  rows.sort((a,b)=>{
+    const dn = (a.defectNum||'').toString().localeCompare((b.defectNum||'').toString(), undefined, {numeric:true});
+    if (dn !== 0) return dn;
+    return a.storyName.localeCompare(b.storyName);
+  });
+
   let html = '<div style="max-height:480px;overflow:auto;border:1px solid var(--card-border);border-radius:6px">';
   html += '<table>';
   html += '<thead><tr>' +
-          '<th style="width:32%">Story Name</th>' +
           '<th style="width:18%">Defect Number</th>' +
+          '<th style="width:32%">Story Name</th>' +
           '<th style="width:18%">Created By</th>' +
           '<th style="width:18%">Assigned To</th>' +
           '<th style="width:14%">Status</th>' +
-          '</tr></thead>';
-  html += '<tbody>';
+          '</tr></thead><tbody>';
+
   rows.forEach(r=>{
     html += `<tr>
-      <td>${escapeHtml(r.storyName)}</td>
       <td>${escapeHtml(r.defectNum)}</td>
+      <td>${escapeHtml(r.storyName)}</td>
       <td>${escapeHtml(r.createdBy)}</td>
       <td>${escapeHtml(r.assignedTo)}</td>
       <td>${escapeHtml(r.status)}</td>
     </tr>`;
   });
+
   html += '</tbody></table></div>';
   container.innerHTML = html;
 }
