@@ -1153,7 +1153,10 @@ html += `
                  font-size:13px; line-height:1.6; font-weight:500 !important; font-family:Arial, Helvetica, sans-serif;">
         ${metrics.completion < 80 ? `<li style="font-weight:500 !important;">${(100-metrics.completion).toFixed(1)}% of stories still need completion</li>` : ''}
         ${metrics.coverage   < 90 ? `<li style="font-weight:500 !important;">${(100-metrics.coverage).toFixed(1)}% gap in test coverage</li>` : ''}
-        ${metrics.totalDef   >  0 ? `<li style="font-weight:500 !important;">${metrics.totalDef} defects require attention</li>` : ''}
+        ${(() => {
+          const awaitingDef = (globalData.defects||[]).filter(d => (d.defectStatus||'').toLowerCase().startsWith('awaiting')).length;
+          return awaitingDef > 0 ? `<li style="font-weight:500 !important;">${awaitingDef} defects require attention</li>` : '';
+        })()}
         ${
           (globalData.stories.filter(s => !globalData.testCases.some(tc => tc.storyNumber === s.storyNumber && tc.tcName)).length > 0)
             ? `<li style="font-weight:400 !important;">${
