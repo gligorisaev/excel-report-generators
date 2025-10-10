@@ -606,385 +606,6 @@ function calculateMetrics(data){
   };
 }
 
-/* ---------- Rendering ---------- */
-function renderDashboard(){
-  // Main cards
-  setTxt('mStories', metrics.totalStories);
-  setTxt('mPoints', metrics.totalPoints);
-  setTxt('mTC', metrics.totalTC);
-  setTxt('mExec', metrics.totalExec);
-
-  // Add quick tooltips with reference totals (from summary row)
-  if (gid('mTC')) gid('mTC').title = `Ref (sheet total): ${metrics.refs?.totalTCRef ?? 0}`;
-  if (gid('mExec')) gid('mExec').title = `Ref (sheet total): ${metrics.refs?.totalExecRef ?? 0}`;
-  if (gid('mDef')) gid('mDef').title = `Ref (sheet total): ${metrics.refs?.totalDefRef ?? 0}`;
-
-  // Executions breakdown
-  const validExecutions = getValidExecutions(globalData.executions);
-  const passedExecutions = validExecutions.filter(e => e.execStatus && e.execStatus.toLowerCase().includes('pass')).length;
-  const failedExecutions = validExecutions.filter(e => e.execStatus && e.execStatus.toLowerCase().includes('fail')).length;
-  const blockedExecutions = validExecutions.filter(e => e.execStatus && e.execStatus.toLowerCase().includes('block')).length;
-
-  setTxt('mPassed', passedExecutions);
-  setTxt('mFailed', failedExecutions);
-  setTxt('mBlocked', blockedExecutions);
-  setTxt('mDef', metrics.totalDef);
-  setTxt('mCov', metrics.coverage + '%');
-  setTxt('mCompl', metrics.completion + '%');
-
-  // User Stories segment
-  const storiesWithoutTC = globalData.stories.filter(s => !globalData.testCases.some(tc => tc.storyNumber===s.storyNumber && tc.tcName));
-  const highImpactCount = globalData.stories.filter(s => s.impact==='High' || s.impact==='Critical').length;
-
-  setTxt('storyTotal', metrics.totalStories);
-  setTxt('storyAvgPoints', metrics.avgPointsPerStory);
-  setTxt('storyNoTests', storiesWithoutTC.length);
-  setTxt('storyHighImpact', highImpactCount);
-
-  // Change to donut charts
-  renderDonutChart('storyStatusChart', metrics.statusDist, {
-    'Ready for Production Deployment':'#10b981','Development In Progress':'#f59e0b','Ready for Testing':'#3b82f6','Ready for Development':'#8b5cf6'
-  });
-  renderDonutChart('storyImpactChart', metrics.impactDist, {
-    'Critical':'#dc2626','High':'#ea580c','Medium':'#f59e0b','Low':'#10b981'
-  });
-  renderDonutChart('storySprintChart', metrics.sprintDist, {});
-
-  // Tests & Executions
-  setTxt('testTotal', metrics.totalTC);
-  setTxt('execTotal', metrics.totalExec);
-  setTxt('execCoverage', metrics.testEfficiency + '%');
-  const unassigned = validExecutions.filter(e => !e.execAssigned || !e.execAssigned.trim()).length;
-  setTxt('execUnassigned', unassigned);
-  setTxt('execPassed', passedExecutions);
-  setTxt('execFailed', failedExecutions);
-  setTxt('execBlocked', blockedExecutions);
-  const execPerTest = metrics.totalTC>0 ? (metrics.totalExec/metrics.totalTC).toFixed(1) : '0.0';
-  setTxt('execPerTest', execPerTest);
-
-  // NEW: render compact Exec Status by Assignee panel (columns R and S)
-  if (gid('execStatusByAssigneeMini')) {
-    renderExecStatusByAssigneeMini('execStatusByAssigneeMini');
-  }
-
-  const testCasesByStory = {};
-  globalData.testCases.forEach(tc => {
-    if (tc.storyName) testCasesByStory[tc.storyName]=(testCasesByStory[tc.storyName]||0)+1;
-  });
-  // show full story name (no truncation)
-  renderChart('testCasesByStoryChart', testCasesByStory, {}, { noTruncate:true });
-
-  // Render execution status chart as donut
-  const execStatusDist = {};
-  validExecutions.forEach(e => {
-    const status = (e.execStatus && e.execStatus.trim()) || 'No Status';
-    execStatusDist[status] = (execStatusDist[status] || 0) + 1;
-  });
-  renderDonutChart('execStatusChart', execStatusDist, {
-    'Pass':'#10b981','Passed':'#10b981','Failed':'#ef4444','Fail':'#ef4444',
-    'Blocked':'#f59e0b','In Progress':'#3b82f6','Not Run':'#6b7280','Pending':'#8b5cf6','No Status':'#6b7280'
-  });
-
-  renderDonutChart('execByAssigneeChart', metrics.execAssigneeDist, {});
-  if (gid('testWorkloadChart')) renderTestWorkloadBalanceDonut('testWorkloadChart', metrics.execAssigneeDist);
-  if (gid('testCoverageHeatmapChart')) renderTestCoverageHeatmap('testCoverageHeatmapChart');
-
-  // Defects
-  const criticalDefects = globalData.defects.filter(d => {
-    const s = globalData.stories.find(x => x.storyNumber===d.storyNumber);
-    return (s?.impact)==='Critical';
-  }).length;
-
-  // Use calculated open defects and attach reference tooltip
-  setTxt('defectTotal', metrics.totalDef);
-  setTxt('defectDensityVal', metrics.defectDensity);
-  setTxt('defectCritical', criticalDefects);
-  setTxt('defectOpen', metrics.openDefects);
-  if (gid('defectOpen')) gid('defectOpen').title = `Ref (sheet # Open Defects): ${metrics.refs?.openDefectsRef ?? 0}`;
-  setTxt('defectPerStory', (metrics.totalDef/Math.max(1,metrics.totalStories)).toFixed(1));
-
-  const defectStatusDist = {};
-  globalData.defects.forEach(d => {
-    if (d.defectStatus) defectStatusDist[d.defectStatus]=(defectStatusDist[d.defectStatus]||0)+1;
-  });
-  renderDonutChart('defectStatusChart', defectStatusDist, {});
-
-  const defectImpactDist = {};
-  globalData.defects.forEach(d => {
-    const s = globalData.stories.find(x => x.storyNumber===d.storyNumber);
-    const impact = s?.impact || 'Unknown';
-    defectImpactDist[impact]=(defectImpactDist[impact]||0)+1;
-  });
-  renderDonutChart('defectImpactChart', defectImpactDist, {'Critical':'#dc2626','High':'#ea580c','Medium':'#f59e0b','Low':'#10b981'});
-
-  // Defect Trend Analysis as donut
-  if (gid('defectTrendChart')) {
-    // Prepare data for donut: group by impact, value is open defects
-    const defects = globalData.defects||[];
-    const trendDonut = {};
-    const trendColors = {};
-    defects.forEach(d=>{
-      const s = globalData.stories.find(x=>x.storyNumber===d.storyNumber);
-      const impact = s?.impact || 'Unknown';
-      if (d.defectStatus !== 'Closed' && d.defectStatus !== 'Resolved') {
-        trendDonut[impact] = (trendDonut[impact]||0)+1;
-      }
-      trendColors[impact] = impact === 'Critical' ? '#dc2626' : impact === 'High' ? '#ea580c' : impact === 'Medium' ? '#f59e0b' : '#10b981';
-    });
-    renderDonutChart('defectTrendChart', trendDonut, trendColors);
-  }
-
-  // Ensure defects table is rendered
-  if (gid('defectsByStoryChart')) {
-    renderDefectsTable('defectsByStoryChart');
-  }
-
-  // Data quality
-  renderDataQuality();
-  if (fileComparison) renderComparison();
-}
-
-/* Build compact table of execution status grouped by assignee */
-function renderExecStatusByAssigneeMini(containerId){
-  const container = gid(containerId);
-  if (!container) return;
-  const executions = globalData.executions || [];
-
-  // CHANGED: use valid, de-duped executions
-  const entriesSrc = getValidExecutions(executions);
-
-  const byAssignee = {};
-  entriesSrc.forEach(e => {
-    const assignee = (e.execAssigned && e.execAssigned.trim()) || '(unassigned)';
-    const status = (e.execStatus || 'No Status').trim();
-    if (!byAssignee[assignee]) byAssignee[assignee] = { total:0, Passed:0, Failed:0, InProgress:0, NotStarted:0, NeedHelp:0, NoStatus:0 };
-    byAssignee[assignee].total++;
-    const s = status.toLowerCase();
-    if (s.includes('pass')) byAssignee[assignee].Passed++;
-    else if (s.includes('fail')) byAssignee[assignee].Failed++;
-    else if (s.includes('need help')) byAssignee[assignee].NeedHelp++;
-    else if (s.includes('not started') || (s.startsWith('not') && s.includes('start'))) byAssignee[assignee].NotStarted++;
-    else if (s === 'no status') byAssignee[assignee].NoStatus++;
-    else if (s.includes('progress')) byAssignee[assignee].InProgress++;
-    else byAssignee[assignee].InProgress++; // default bucket
-  });
-
-  const entries = Object.entries(byAssignee).sort((a,b)=>b[1].total - a[1].total);
-  if (!entries.length){ container.innerHTML = '<div class="small" style="font-style:italic">No execution data</div>'; return; }
-
-  let html = '<div class="chart-body" style="overflow:auto">';
-  html += '<table style="width:100%">\n<thead><tr>'+
-          '<th style="text-align:left">Assignee</th>'+
-          '<th>Passed</th>'+
-          '<th>Failed</th>'+
-          '<th>In Progress</th>'+
-          '<th>Not Started</th>'+
-          '<th>Need Help</th>'+
-          '<th>Total</th>'+
-          '</tr></thead><tbody>';
-
-  entries.forEach(([name, m]) => {
-    html += `<tr>`+
-      `<td style="text-align:left">${escapeHtml(name)}</td>`+
-      `<td style="color:#10b981;font-weight:600">${m.Passed}</td>`+
-      `<td style="color:#ef4444;font-weight:600">${m.Failed}</td>`+
-      `<td style="color:#3b82f6;font-weight:600">${m.InProgress}</td>`+
-      `<td style="color:#6b7280;font-weight:600">${m.NotStarted}</td>`+
-      `<td style="color:#f59e0b;font-weight:600">${m.NeedHelp}</td>`+
-      `<td style="font-weight:700">${m.total}</td>`+
-    `</tr>`;
-  });
-  html += '</tbody></table></div>';
-  container.innerHTML = html;
-}
-
-// Move renderTestCoverageHeatmap definition above any usage (before renderDashboard)
-function renderTestCoverageHeatmap(containerId){
-  const container = gid(containerId);
-  if (!container) return;
-  const stories = globalData.stories||[];
-  if (!stories.length){ container.innerHTML='<div class="small" style="text-align:center;padding:20px">No story data</div>'; return; }
-
-  // build tests per story
-  const testCasesByStory = {};
-  (globalData.testCases||[]).forEach(tc => {
-    if (tc.storyNumber) testCasesByStory[tc.storyNumber]=(testCasesByStory[tc.storyNumber]||0)+1;
-  });
-
-  const sprintCoverage = {};
-  stories.forEach(s=>{
-    const sprint = s.sprint || 'No Sprint';
-    const tests = testCasesByStory[s.storyNumber]||0;
-    sprintCoverage[sprint] = sprintCoverage[sprint] || { stories:0, withTests:0, totalTests:0 };
-    sprintCoverage[sprint].stories++;
-    sprintCoverage[sprint].totalTests += tests;
-    if (tests>0) sprintCoverage[sprint].withTests++;
-  });
-
-  // Convert to donut chart data with coverage-based colors
-  const donutData = {};
-  const colors = {};
-  Object.entries(sprintCoverage).forEach(([sprint, d]) => {
-    const cov = d.stories > 0 ? (d.withTests / d.stories) * 100 : 0;
-    donutData[sprint] = d.totalTests;
-    colors[sprint] = cov >= 80 ? '#10b981' : cov >= 60 ? '#f59e0b' : '#ef4444';
-  });
-
-  renderDonutChart(containerId, donutData, colors);
-
-  // Add coverage summary
-  const totalStories = Object.values(sprintCoverage).reduce((sum, d) => sum + d.stories, 0);
-  const totalWithTests = Object.values(sprintCoverage).reduce((sum, d) => sum + d.withTests, 0);
-  const overallCoverage = totalStories > 0 ? (totalWithTests / totalStories * 100).toFixed(1) : '0.0';
-
-  const summaryInfo = `<div class="small" style="padding:8px;text-align:center;border-top:1px solid #e5e7eb;margin-top:8px">Overall Coverage: <strong>${overallCoverage}%</strong> (${totalWithTests}/${totalStories} stories)</div>`;
-  container.innerHTML += summaryInfo;
-}
-
-/* UPDATED: renderChart now supports opts.noTruncate to keep full labels */
-function renderChart(containerId, data, colors, opts={}){
-  const container = gid(containerId);
-  if (!container) return;
-  const entries = Object.entries(data||{});
-  if (!entries.length){ container.innerHTML='<div class="small" style="text-align:center;padding:20px">No data</div>'; return; }
-  const max = Math.max(...entries.map(e=>e[1]));
-  let html='<div style="padding:8px">';
-  const noTruncate = !!opts.noTruncate;
-
-  entries.sort((a,b)=>b[1]-a[1]).forEach(([key,val])=>{
-    const pct = max>0 ? (val/max)*100 : 0;
-    const color = (colors && colors[key]) || '#6366f1';
-    const label = noTruncate ? key : (key.length>48 ? key.slice(0,48)+'…' : key);
-    html += `
-      <div style="margin-bottom:10px">
-        <div style="display:flex;justify-content:space-between;margin-bottom:6px;gap:8px">
-          <span style="font-weight:600;color:#374151;word-break:break-word" title="${key}">${label}</span>
-          <span style="font-weight:800;color:#111827;white-space:nowrap">${val}</span>
-        </div>
-        <div style="background:${getComputedStyle(document.documentElement).getPropertyValue('--track') || '#e5e7eb'};border-radius:6px;height:10px">
-          <div style="background:${color};height:100%;width:${pct}%;border-radius:6px"></div>
-        </div>
-      </div>`;
-  });
-  html+='</div>'; container.innerHTML=html;
-}
-
-/* Render a table of defects by Defect Number (full width, includes Status) */
-function renderDefectsTable(containerId){
-  const container = gid(containerId);
-  if (!container) return;
-
-  const defects = globalData.defects || [];
-  if (!defects.length){
-    container.innerHTML = '<div class="small" style="text-align:center;padding:20px">No defect data</div>';
-    return;
-  }
-
-  // Map + normalize
-  const rows = defects.map(d => ({
-    defectNum : d.defectNum || d.defectName || '',
-    storyName : d.storyName || (globalData.stories.find(s=>s.storyNumber===d.storyNumber)?.storyName) || '(Unknown story)',
-    createdBy : d.defectCreatedBy || '',
-    assignedTo: d.defectAssignedTo || '',
-    status    : d.defectStatus || ''
-  }));
-
-  // Sort by defect number (natural) then story name
-  rows.sort((a,b)=>{
-    const dn = (a.defectNum||'').toString().localeCompare((b.defectNum||'').toString(), undefined, {numeric:true});
-    if (dn !== 0) return dn;
-    return a.storyName.localeCompare(b.storyName);
-  });
-
-  let html = '<div style="max-height:480px;overflow:auto;border:1px solid var(--card-border);border-radius:6px">';
-  html += '<table>';
-  html += '<thead><tr>' +
-          '<th style="width:18%">Defect Number</th>' +
-          '<th style="width:32%">Story Name</th>' +
-          '<th style="width:18%">Created By</th>' +
-          '<th style="width:18%">Assigned To</th>' +
-          '<th style="width:14%">Status</th>' +
-          '</tr></thead><tbody>';
-
-  rows.forEach(r=>{
-    html += `<tr>
-      <td>${escapeHtml(r.defectNum)}</td>
-      <td>${escapeHtml(r.storyName)}</td>
-      <td>${escapeHtml(r.createdBy)}</td>
-      <td>${escapeHtml(r.assignedTo)}</td>
-      <td>${escapeHtml(r.status)}</td>
-    </tr>`;
-  });
-
-  html += '</tbody></table></div>';
-  container.innerHTML = html;
-}
-
-/* Render a table of test executions with status */
-function renderTestExecutionsTable(containerId){
-  const container = gid(containerId);
-  if (!container) return;
-
-  const executions = globalData.executions || [];
-  if (!executions.length){
-    container.innerHTML = '<div class="small" style="text-align:center;padding:20px">No execution data</div>';
-    return;
-  }
-
-  // CHANGED: show only valid, de-duped executions (by tceNum)
-  const rows = getValidExecutions(executions)
-    .map(e => ({
-      storyName: e.storyName || (globalData.stories.find(s=>s.storyNumber===e.storyNumber)?.storyName) || '(Unknown story)',
-      storyNumber: e.storyNumber || '',
-      tcName: e.tcName || '',
-      tceNum: e.tceNum || '',
-      execAssigned: e.execAssigned || '',
-      execStatus: e.execStatus || 'No Status'
-    }))
-    .sort((a,b)=>{
-      const s = a.storyName.localeCompare(b.storyName);
-      if (s !== 0) return s;
-      return (a.tcName||'').localeCompare(b.tcName||'');
-    });
-
-  // Build table
-  let html = '<div style="max-height:400px;overflow:auto;border:1px solid var(--card-border);border-radius:6px">';
-  html += '<table><thead><tr>' +
-          '<th style="width:25%">Story Name</th>' +
-          '<th style="width:15%">Test Case</th>' +
-          '<th style="width:12%">Execution #</th>' +
-          '<th style="width:18%">Assigned To</th>' +
-          '<th style="width:15%">Status</th>' +
-          '<th style="width:15%">Story #</th>' +
-          '</tr></thead><tbody>';
-
-  rows.forEach(r=>{
-    const statusColor = getStatusColor(r.execStatus);
-    html += `<tr>
-      <td>${escapeHtml(r.storyName)}</td>
-      <td>${escapeHtml(r.tcName)}</td>
-      <td>${escapeHtml(r.tceNum)}</td>
-      <td>${escapeHtml(r.execAssigned)}</td>
-      <td style="color:${statusColor};font-weight:600">${escapeHtml(r.execStatus)}</td>
-      <td>${escapeHtml(r.storyNumber)}</td>
-    </tr>`;
-  });
-
-  html += '</tbody></table></div>';
-  container.innerHTML = html;
-}
-
-/* Get color for execution status */
-function getStatusColor(status) {
-  const s = (status || '').toLowerCase();
-  if (s.includes('pass')) return '#10b981';
-  if (s.includes('fail')) return '#ef4444';
-  if (s.includes('block')) return '#f59e0b';
-  if (s.includes('progress')) return '#3b82f6';
-  if (s.includes('pending')) return '#8b5cf6';
-  return '#6b7280';
-}
-
 /* util: basic HTML escape for table cells */
 function escapeHtml(str){
   return String(str ?? '')
@@ -1081,246 +702,129 @@ function renderTestWorkloadBalanceDonut(containerId, assigneeDist) {
   container.innerHTML += avgInfo;
 }
 
-/* Render test workload balance - category-based */
-function renderDataQuality(){
-  const container = gid('dqContainer');
+/* Render test coverage heatmap */
+function renderTestCoverageHeatmap(containerId){
+  const container = gid(containerId);
   if (!container) return;
-  const { stories=[], testCases=[], executions=[], defects=[], summaryRef={} } = globalData;
+  const stories = globalData.stories||[];
+  if (!stories.length){ container.innerHTML='<div class="small" style="text-align:center;padding:20px">No story data</div>'; return; }
 
-  const validExecutions = getValidExecutions(executions);
+  const testCasesByStory = {};
+  (globalData.testCases||[]).forEach(tc => {
+    if (tc.storyNumber) testCasesByStory[tc.storyNumber]=(testCasesByStory[tc.storyNumber]||0)+1;
+  });
 
-  // Issues
-  const storiesWithoutTC = stories.filter(s => !testCases.some(tc => tc.storyNumber===s.storyNumber && tc.tcName));
-  const tcWithoutExec = testCases.filter(tc => !validExecutions.some(e => e.storyNumber===tc.storyNumber && e.tcName===tc.tcName));
-  const execWithoutAssignee = validExecutions.filter(e => !e.execAssigned || !e.execAssigned.trim());
-  const defectsWithoutAssignee = defects.filter(d => (d.defectNum || d.defectName) && !d.defectAssignedTo);
-  const highImpactNoTests = stories.filter(s => (s.impact==='Critical' || s.impact==='High') && !testCases.some(tc => tc.storyNumber===s.storyNumber && tc.tcName));
+  const sprintCoverage = {};
+  stories.forEach(s=>{
+    const sprint = s.sprint || 'No Sprint';
+    const tests = testCasesByStory[s.storyNumber]||0;
+    sprintCoverage[sprint] = sprintCoverage[sprint] || { stories:0, withTests:0, totalTests:0 };
+    sprintCoverage[sprint].stories++;
+    sprintCoverage[sprint].totalTests += tests;
+    if (tests>0) sprintCoverage[sprint].withTests++;
+  });
 
-  // Calculated vs sheet references
-  const calc = {
-    tc: testCases.filter(tc => tc.tcName && tc.tcName.trim()).length,
-    exec: validExecutions.length,
-    def: defects.filter(d => d.defectNum || d.defectName).length,
-    openDef: defects.filter(d => {
-      const st=(d.defectStatus||'').toLowerCase();
-      return st && !(st.includes('closed') || st.includes('resolve'));
-    }).length
-  };
-  const ref = {
-    tc: Number(summaryRef.totalTCRef||0),
-    exec: Number(summaryRef.totalExecRef||0),
-    def: Number(summaryRef.totalDefRef||0),
-    openDef: Number(summaryRef.openDefectsRef||0)
-  };
-  const mismatches = [
-    {label:'Test Cases', c:calc.tc, r:ref.tc},
-    {label:'Executions', c:calc.exec, r:ref.exec},
-    {label:'Defects', c:calc.def, r:ref.def},
-    {label:'# Open Defects', c:calc.openDef, r:ref.openDef}
-  ].filter(x => x.c !== x.r);
+  const donutData = {};
+  const colors = {};
+  Object.entries(sprintCoverage).forEach(([sprint, d]) => {
+    const cov = d.stories > 0 ? (d.withTests / d.stories) * 100 : 0;
+    donutData[sprint] = d.totalTests;
+    colors[sprint] = cov >= 80 ? '#10b981' : cov >= 60 ? '#f59e0b' : '#ef4444';
+  });
 
-  // Build HTML
-  let html = '';
+  renderDonutChart(containerId, donutData, colors);
 
-  html += storiesWithoutTC.length
-    ? `<div class="issue" style="margin-bottom:8px"><strong>${storiesWithoutTC.length}</strong> stories without test cases</div>`
-    : `<div class="success" style="margin-bottom:8px">✅ All stories have test cases</div>`;
+  const totalStories = Object.values(sprintCoverage).reduce((sum, d) => sum + d.stories, 0);
+  const totalWithTests = Object.values(sprintCoverage).reduce((sum, d) => sum + d.withTests, 0);
+  const overallCoverage = totalStories > 0 ? (totalWithTests / totalStories * 100).toFixed(1) : '0.0';
 
-  html += tcWithoutExec.length
-    ? `<div class="issue" style="margin-bottom:8px"><strong>${tcWithoutExec.length}</strong> test cases without executions</div>`
-    : `<div class="success" style="margin-bottom:8px">✅ All test cases have executions</div>`;
+  const summaryInfo = `<div class="small" style="padding:8px;text-align:center;border-top:1px solid #e5e7eb;margin-top:8px">Overall Coverage: <strong>${overallCoverage}%</strong> (${totalWithTests}/${totalStories} stories)</div>`;
+  container.innerHTML += summaryInfo;
+}
 
-  html += execWithoutAssignee.length
-    ? `<div class="warn" style="margin-bottom:8px"><strong>${execWithoutAssignee.length}</strong> executions without assignees</div>`
-    : `<div class="success" style="margin-bottom:8px">✅ All executions have assignees</div>`;
+/* Render bar chart */
+function renderChart(containerId, data, colors, opts={}){
+  const container = gid(containerId);
+  if (!container) return;
+  const entries = Object.entries(data||{});
+  if (!entries.length){ container.innerHTML='<div class="small" style="text-align:center;padding:20px">No data</div>'; return; }
+  const max = Math.max(...entries.map(e=>e[1]));
+  let html='<div style="padding:8px">';
+  const noTruncate = !!opts.noTruncate;
 
-  html += defectsWithoutAssignee.length
-    ? `<div class="warn" style="margin-bottom:8px"><strong>${defectsWithoutAssignee.length}</strong> defects without assignees</div>`
-    : `<div class="success" style="margin-bottom:8px">✅ All defects have assignees</div>`;
+  entries.sort((a,b)=>b[1]-a[1]).forEach(([key,val])=>{
+    const pct = max>0 ? (val/max)*100 : 0;
+    const color = (colors && colors[key]) || '#6366f1';
+    const label = noTruncate ? key : (key.length>48 ? key.slice(0,48)+'…' : key);
+    html += `
+      <div style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px;gap:8px">
+          <span style="font-weight:600;color:#374151;word-break:break-word" title="${key}">${label}</span>
+          <span style="font-weight:800;color:#111827;white-space:nowrap">${val}</span>
+        </div>
+        <div style="background:${getComputedStyle(document.documentElement).getPropertyValue('--track') || '#e5e7eb'};border-radius:6px;height:10px">
+          <div style="background:${color};height:100%;width:${pct}%;border-radius:6px"></div>
+        </div>
+      </div>`;
+  });
+  html+='</div>'; container.innerHTML=html;
+}
 
-  html += highImpactNoTests.length
-    ? `<div class="issue" style="margin-bottom:8px"><strong>${highImpactNoTests.length}</strong> high/critical stories without test cases</div>`
-    : `<div class="success" style="margin-bottom:8px">✅ All high/critical stories have tests</div>`;
+/* Render defects table */
+function renderDefectsTable(containerId){
+  const container = gid(containerId);
+  if (!container) return;
 
-  html += mismatches.length
-    ? `<div class="warn" style="margin-bottom:8px"><strong>Sheet summary mismatch</strong><div class="small" style="margin-top:6px">${mismatches.map(x=>`• ${x.label}: calc ${x.c} vs ref ${x.r}`).join('<br>')}</div></div>`
-    : `<div class="success" style="margin-bottom:8px">✅ Calculated totals match sheet summary</div>`;
+  const defects = globalData.defects || [];
+  if (!defects.length){
+    container.innerHTML = '<div class="small" style="text-align:center;padding:20px">No defect data</div>';
+    return;
+  }
 
-  html += `<div style="margin-top:12px;padding:10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:0.9rem;color:#1e3a8a">
-    <strong>Data Summary:</strong><br>
-    • ${stories.length} unique stories<br>
-    • ${calc.tc} test cases (ref: ${ref.tc})<br>
-    • ${calc.exec} executions (ref: ${ref.exec})<br>
-    • ${calc.def} defects (ref: ${ref.def})<br>
-    • ${calc.openDef} open defects (ref: ${ref.openDef})
-  </div>`;
+  const rows = defects.map(d => ({
+    defectNum : d.defectNum || d.defectName || '',
+    storyName : d.storyName || (globalData.stories.find(s=>s.storyNumber===d.storyNumber)?.storyName) || '(Unknown story)',
+    createdBy : d.defectCreatedBy || '',
+    assignedTo: d.defectAssignedTo || '',
+    status    : d.defectStatus || ''
+  }));
 
+  rows.sort((a,b)=>{
+    const dn = (a.defectNum||'').toString().localeCompare((b.defectNum||'').toString(), undefined, {numeric:true});
+    if (dn !== 0) return dn;
+    return a.storyName.localeCompare(b.storyName);
+  });
+
+  let html = '<div style="max-height:480px;overflow:auto;border:1px solid var(--card-border);border-radius:6px">';
+  html += '<table>';
+  html += '<thead><tr>' +
+          '<th style="width:18%">Defect Number</th>' +
+          '<th style="width:32%">Story Name</th>' +
+          '<th style="width:18%">Created By</th>' +
+          '<th style="width:18%">Assigned To</th>' +
+          '<th style="width:14%">Status</th>' +
+          '</tr></thead><tbody>';
+
+  rows.forEach(r=>{
+    html += `<tr>
+      <td>${escapeHtml(r.defectNum)}</td>
+      <td>${escapeHtml(r.storyName)}</td>
+      <td>${escapeHtml(r.createdBy)}</td>
+      <td>${escapeHtml(r.assignedTo)}</td>
+      <td>${escapeHtml(r.status)}</td>
+    </tr>`;
+  });
+
+  html += '</tbody></table></div>';
   container.innerHTML = html;
 }
 
-// ADD stubs for missing export functions to prevent errors
-function copyEmailBody(){
-  alert('Email copy functionality not yet implemented');
-}
-
-function exportPDF(){
-  alert('PDF export functionality not yet implemented');
-}
-
-function generateComparison(){
-  // Already defined in existing code
-  return null;
-}
-
-function renderComparison(){
-  // Already defined in existing code
-}
-
-/* ---------- Rendering ---------- */
-function renderDashboard(){
-  // Main cards
-  setTxt('mStories', metrics.totalStories);
-  setTxt('mPoints', metrics.totalPoints);
-  setTxt('mTC', metrics.totalTC);
-  setTxt('mExec', metrics.totalExec);
-
-  // Add quick tooltips with reference totals (from summary row)
-  if (gid('mTC')) gid('mTC').title = `Ref (sheet total): ${metrics.refs?.totalTCRef ?? 0}`;
-  if (gid('mExec')) gid('mExec').title = `Ref (sheet total): ${metrics.refs?.totalExecRef ?? 0}`;
-  if (gid('mDef')) gid('mDef').title = `Ref (sheet total): ${metrics.refs?.totalDefRef ?? 0}`;
-
-  // Executions breakdown
-  const validExecutions = getValidExecutions(globalData.executions);
-  const passedExecutions = validExecutions.filter(e => e.execStatus && e.execStatus.toLowerCase().includes('pass')).length;
-  const failedExecutions = validExecutions.filter(e => e.execStatus && e.execStatus.toLowerCase().includes('fail')).length;
-  const blockedExecutions = validExecutions.filter(e => e.execStatus && e.execStatus.toLowerCase().includes('block')).length;
-
-  setTxt('mPassed', passedExecutions);
-  setTxt('mFailed', failedExecutions);
-  setTxt('mBlocked', blockedExecutions);
-  setTxt('mDef', metrics.totalDef);
-  setTxt('mCov', metrics.coverage + '%');
-  setTxt('mCompl', metrics.completion + '%');
-
-  // User Stories segment
-  const storiesWithoutTC = globalData.stories.filter(s => !globalData.testCases.some(tc => tc.storyNumber===s.storyNumber && tc.tcName));
-  const highImpactCount = globalData.stories.filter(s => s.impact==='High' || s.impact==='Critical').length;
-
-  setTxt('storyTotal', metrics.totalStories);
-  setTxt('storyAvgPoints', metrics.avgPointsPerStory);
-  setTxt('storyNoTests', storiesWithoutTC.length);
-  setTxt('storyHighImpact', highImpactCount);
-
-  // Change to donut charts
-  renderDonutChart('storyStatusChart', metrics.statusDist, {
-    'Ready for Production Deployment':'#10b981','Development In Progress':'#f59e0b','Ready for Testing':'#3b82f6','Ready for Development':'#8b5cf6'
-  });
-  renderDonutChart('storyImpactChart', metrics.impactDist, {
-    'Critical':'#dc2626','High':'#ea580c','Medium':'#f59e0b','Low':'#10b981'
-  });
-  renderDonutChart('storySprintChart', metrics.sprintDist, {});
-
-  // Tests & Executions
-  setTxt('testTotal', metrics.totalTC);
-  setTxt('execTotal', metrics.totalExec);
-  setTxt('execCoverage', metrics.testEfficiency + '%');
-  const unassigned = validExecutions.filter(e => !e.execAssigned || !e.execAssigned.trim()).length;
-  setTxt('execUnassigned', unassigned);
-  setTxt('execPassed', passedExecutions);
-  setTxt('execFailed', failedExecutions);
-  setTxt('execBlocked', blockedExecutions);
-  const execPerTest = metrics.totalTC>0 ? (metrics.totalExec/metrics.totalTC).toFixed(1) : '0.0';
-  setTxt('execPerTest', execPerTest);
-
-  // NEW: render compact Exec Status by Assignee panel (columns R and S)
-  if (gid('execStatusByAssigneeMini')) {
-    renderExecStatusByAssigneeMini('execStatusByAssigneeMini');
-  }
-
-  const testCasesByStory = {};
-  globalData.testCases.forEach(tc => {
-    if (tc.storyName) testCasesByStory[tc.storyName]=(testCasesByStory[tc.storyName]||0)+1;
-  });
-  // show full story name (no truncation)
-  renderChart('testCasesByStoryChart', testCasesByStory, {}, { noTruncate:true });
-
-  // Render execution status chart as donut
-  const execStatusDist = {};
-  validExecutions.forEach(e => {
-    const status = (e.execStatus && e.execStatus.trim()) || 'No Status';
-    execStatusDist[status] = (execStatusDist[status] || 0) + 1;
-  });
-  renderDonutChart('execStatusChart', execStatusDist, {
-    'Pass':'#10b981','Passed':'#10b981','Failed':'#ef4444','Fail':'#ef4444',
-    'Blocked':'#f59e0b','In Progress':'#3b82f6','Not Run':'#6b7280','Pending':'#8b5cf6','No Status':'#6b7280'
-  });
-
-  renderDonutChart('execByAssigneeChart', metrics.execAssigneeDist, {});
-  if (gid('testWorkloadChart')) renderTestWorkloadBalanceDonut('testWorkloadChart', metrics.execAssigneeDist);
-  if (gid('testCoverageHeatmapChart')) renderTestCoverageHeatmap('testCoverageHeatmapChart');
-
-  // Defects
-  const criticalDefects = globalData.defects.filter(d => {
-    const s = globalData.stories.find(x => x.storyNumber===d.storyNumber);
-    return (s?.impact)==='Critical';
-  }).length;
-
-  // Use calculated open defects and attach reference tooltip
-  setTxt('defectTotal', metrics.totalDef);
-  setTxt('defectDensityVal', metrics.defectDensity);
-  setTxt('defectCritical', criticalDefects);
-  setTxt('defectOpen', metrics.openDefects);
-  if (gid('defectOpen')) gid('defectOpen').title = `Ref (sheet # Open Defects): ${metrics.refs?.openDefectsRef ?? 0}`;
-  setTxt('defectPerStory', (metrics.totalDef/Math.max(1,metrics.totalStories)).toFixed(1));
-
-  const defectStatusDist = {};
-  globalData.defects.forEach(d => {
-    if (d.defectStatus) defectStatusDist[d.defectStatus]=(defectStatusDist[d.defectStatus]||0)+1;
-  });
-  renderDonutChart('defectStatusChart', defectStatusDist, {});
-
-  const defectImpactDist = {};
-  globalData.defects.forEach(d => {
-    const s = globalData.stories.find(x => x.storyNumber===d.storyNumber);
-    const impact = s?.impact || 'Unknown';
-    defectImpactDist[impact]=(defectImpactDist[impact]||0)+1;
-  });
-  renderDonutChart('defectImpactChart', defectImpactDist, {'Critical':'#dc2626','High':'#ea580c','Medium':'#f59e0b','Low':'#10b981'});
-
-  // Defect Trend Analysis as donut
-  if (gid('defectTrendChart')) {
-    // Prepare data for donut: group by impact, value is open defects
-    const defects = globalData.defects||[];
-    const trendDonut = {};
-    const trendColors = {};
-    defects.forEach(d=>{
-      const s = globalData.stories.find(x=>x.storyNumber===d.storyNumber);
-      const impact = s?.impact || 'Unknown';
-      if (d.defectStatus !== 'Closed' && d.defectStatus !== 'Resolved') {
-        trendDonut[impact] = (trendDonut[impact]||0)+1;
-      }
-      trendColors[impact] = impact === 'Critical' ? '#dc2626' : impact === 'High' ? '#ea580c' : impact === 'Medium' ? '#f59e0b' : '#10b981';
-    });
-    renderDonutChart('defectTrendChart', trendDonut, trendColors);
-  }
-
-  // Ensure defects table is rendered
-  if (gid('defectsByStoryChart')) {
-    renderDefectsTable('defectsByStoryChart');
-  }
-
-  // Data quality
-  renderDataQuality();
-  if (fileComparison) renderComparison();
-}
-
-/* Build compact table of execution status grouped by assignee */
+/* Render exec status by assignee mini table */
 function renderExecStatusByAssigneeMini(containerId){
   const container = gid(containerId);
   if (!container) return;
   const executions = globalData.executions || [];
 
-  // CHANGED: use valid, de-duped executions
   const entriesSrc = getValidExecutions(executions);
 
   const byAssignee = {};
@@ -1336,7 +840,7 @@ function renderExecStatusByAssigneeMini(containerId){
     else if (s.includes('not started') || (s.startsWith('not') && s.includes('start'))) byAssignee[assignee].NotStarted++;
     else if (s === 'no status') byAssignee[assignee].NoStatus++;
     else if (s.includes('progress')) byAssignee[assignee].InProgress++;
-    else byAssignee[assignee].InProgress++; // default bucket
+    else byAssignee[assignee].InProgress++;
   });
 
   const entries = Object.entries(byAssignee).sort((a,b)=>b[1].total - a[1].total);
@@ -1368,290 +872,7 @@ function renderExecStatusByAssigneeMini(containerId){
   container.innerHTML = html;
 }
 
-// Move renderTestCoverageHeatmap definition above any usage (before renderDashboard)
-function renderTestCoverageHeatmap(containerId){
-  const container = gid(containerId);
-  if (!container) return;
-  const stories = globalData.stories||[];
-  if (!stories.length){ container.innerHTML='<div class="small" style="text-align:center;padding:20px">No story data</div>'; return; }
-
-  // build tests per story
-  const testCasesByStory = {};
-  (globalData.testCases||[]).forEach(tc => {
-    if (tc.storyNumber) testCasesByStory[tc.storyNumber]=(testCasesByStory[tc.storyNumber]||0)+1;
-  });
-
-  const sprintCoverage = {};
-  stories.forEach(s=>{
-    const sprint = s.sprint || 'No Sprint';
-    const tests = testCasesByStory[s.storyNumber]||0;
-    sprintCoverage[sprint] = sprintCoverage[sprint] || { stories:0, withTests:0, totalTests:0 };
-    sprintCoverage[sprint].stories++;
-    sprintCoverage[sprint].totalTests += tests;
-    if (tests>0) sprintCoverage[sprint].withTests++;
-  });
-
-  // Convert to donut chart data with coverage-based colors
-  const donutData = {};
-  const colors = {};
-  Object.entries(sprintCoverage).forEach(([sprint, d]) => {
-    const cov = d.stories > 0 ? (d.withTests / d.stories) * 100 : 0;
-    donutData[sprint] = d.totalTests;
-    colors[sprint] = cov >= 80 ? '#10b981' : cov >= 60 ? '#f59e0b' : '#ef4444';
-  });
-
-  renderDonutChart(containerId, donutData, colors);
-
-  // Add coverage summary
-  const totalStories = Object.values(sprintCoverage).reduce((sum, d) => sum + d.stories, 0);
-  const totalWithTests = Object.values(sprintCoverage).reduce((sum, d) => sum + d.withTests, 0);
-  const overallCoverage = totalStories > 0 ? (totalWithTests / totalStories * 100).toFixed(1) : '0.0';
-
-  const summaryInfo = `<div class="small" style="padding:8px;text-align:center;border-top:1px solid #e5e7eb;margin-top:8px">Overall Coverage: <strong>${overallCoverage}%</strong> (${totalWithTests}/${totalStories} stories)</div>`;
-  container.innerHTML += summaryInfo;
-}
-
-/* UPDATED: renderChart now supports opts.noTruncate to keep full labels */
-function renderChart(containerId, data, colors, opts={}){
-  const container = gid(containerId);
-  if (!container) return;
-  const entries = Object.entries(data||{});
-  if (!entries.length){ container.innerHTML='<div class="small" style="text-align:center;padding:20px">No data</div>'; return; }
-  const max = Math.max(...entries.map(e=>e[1]));
-  let html='<div style="padding:8px">';
-  const noTruncate = !!opts.noTruncate;
-
-  entries.sort((a,b)=>b[1]-a[1]).forEach(([key,val])=>{
-    const pct = max>0 ? (val/max)*100 : 0;
-    const color = (colors && colors[key]) || '#6366f1';
-    const label = noTruncate ? key : (key.length>48 ? key.slice(0,48)+'…' : key);
-    html += `
-      <div style="margin-bottom:10px">
-        <div style="display:flex;justify-content:space-between;margin-bottom:6px;gap:8px">
-          <span style="font-weight:600;color:#374151;word-break:break-word" title="${key}">${label}</span>
-          <span style="font-weight:800;color:#111827;white-space:nowrap">${val}</span>
-        </div>
-        <div style="background:${getComputedStyle(document.documentElement).getPropertyValue('--track') || '#e5e7eb'};border-radius:6px;height:10px">
-          <div style="background:${color};height:100%;width:${pct}%;border-radius:6px"></div>
-        </div>
-      </div>`;
-  });
-  html+='</div>'; container.innerHTML=html;
-}
-
-/* Render a table of defects by Defect Number (full width, includes Status) */
-function renderDefectsTable(containerId){
-  const container = gid(containerId);
-  if (!container) return;
-
-  const defects = globalData.defects || [];
-  if (!defects.length){
-    container.innerHTML = '<div class="small" style="text-align:center;padding:20px">No defect data</div>';
-    return;
-  }
-
-  // Map + normalize
-  const rows = defects.map(d => ({
-    defectNum : d.defectNum || d.defectName || '',
-    storyName : d.storyName || (globalData.stories.find(s=>s.storyNumber===d.storyNumber)?.storyName) || '(Unknown story)',
-    createdBy : d.defectCreatedBy || '',
-    assignedTo: d.defectAssignedTo || '',
-    status    : d.defectStatus || ''
-  }));
-
-  // Sort by defect number (natural) then story name
-  rows.sort((a,b)=>{
-    const dn = (a.defectNum||'').toString().localeCompare((b.defectNum||'').toString(), undefined, {numeric:true});
-    if (dn !== 0) return dn;
-    return a.storyName.localeCompare(b.storyName);
-  });
-
-  let html = '<div style="max-height:480px;overflow:auto;border:1px solid var(--card-border);border-radius:6px">';
-  html += '<table>';
-  html += '<thead><tr>' +
-          '<th style="width:18%">Defect Number</th>' +
-          '<th style="width:32%">Story Name</th>' +
-          '<th style="width:18%">Created By</th>' +
-          '<th style="width:18%">Assigned To</th>' +
-          '<th style="width:14%">Status</th>' +
-          '</tr></thead><tbody>';
-
-  rows.forEach(r=>{
-    html += `<tr>
-      <td>${escapeHtml(r.defectNum)}</td>
-      <td>${escapeHtml(r.storyName)}</td>
-      <td>${escapeHtml(r.createdBy)}</td>
-      <td>${escapeHtml(r.assignedTo)}</td>
-      <td>${escapeHtml(r.status)}</td>
-    </tr>`;
-  });
-
-  html += '</tbody></table></div>';
-  container.innerHTML = html;
-}
-
-/* Render a table of test executions with status */
-function renderTestExecutionsTable(containerId){
-  const container = gid(containerId);
-  if (!container) return;
-
-  const executions = globalData.executions || [];
-  if (!executions.length){
-    container.innerHTML = '<div class="small" style="text-align:center;padding:20px">No execution data</div>';
-    return;
-  }
-
-  // CHANGED: show only valid, de-duped executions (by tceNum)
-  const rows = getValidExecutions(executions)
-    .map(e => ({
-      storyName: e.storyName || (globalData.stories.find(s=>s.storyNumber===e.storyNumber)?.storyName) || '(Unknown story)',
-      storyNumber: e.storyNumber || '',
-      tcName: e.tcName || '',
-      tceNum: e.tceNum || '',
-      execAssigned: e.execAssigned || '',
-      execStatus: e.execStatus || 'No Status'
-    }))
-    .sort((a,b)=>{
-      const s = a.storyName.localeCompare(b.storyName);
-      if (s !== 0) return s;
-      return (a.tcName||'').localeCompare(b.tcName||'');
-    });
-
-  // Build table
-  let html = '<div style="max-height:400px;overflow:auto;border:1px solid var(--card-border);border-radius:6px">';
-  html += '<table><thead><tr>' +
-          '<th style="width:25%">Story Name</th>' +
-          '<th style="width:15%">Test Case</th>' +
-          '<th style="width:12%">Execution #</th>' +
-          '<th style="width:18%">Assigned To</th>' +
-          '<th style="width:15%">Status</th>' +
-          '<th style="width:15%">Story #</th>' +
-          '</tr></thead><tbody>';
-
-  rows.forEach(r=>{
-    const statusColor = getStatusColor(r.execStatus);
-    html += `<tr>
-      <td>${escapeHtml(r.storyName)}</td>
-      <td>${escapeHtml(r.tcName)}</td>
-      <td>${escapeHtml(r.tceNum)}</td>
-      <td>${escapeHtml(r.execAssigned)}</td>
-      <td style="color:${statusColor};font-weight:600">${escapeHtml(r.execStatus)}</td>
-      <td>${escapeHtml(r.storyNumber)}</td>
-    </tr>`;
-  });
-
-  html += '</tbody></table></div>';
-  container.innerHTML = html;
-}
-
-/* Get color for execution status */
-function getStatusColor(status) {
-  const s = (status || '').toLowerCase();
-  if (s.includes('pass')) return '#10b981';
-  if (s.includes('fail')) return '#ef4444';
-  if (s.includes('block')) return '#f59e0b';
-  if (s.includes('progress')) return '#3b82f6';
-  if (s.includes('pending')) return '#8b5cf6';
-  return '#6b7280';
-}
-
-/* util: basic HTML escape for table cells */
-function escapeHtml(str){
-  return String(str ?? '')
-    .replace(/&/g,'&amp;')
-    .replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;')
-    .replace(/'/g,'&#39;');
-}
-
-/* Get default color for index */
-function getDefaultColor(idx) {
-  const palette = [
-    '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444',
-    '#06b6d4', '#ec4899', '#14b8a6', '#f97316', '#6366f1'
-  ];
-  return palette[idx % palette.length];
-}
-
-/* Render donut chart - legend-based version */
-function renderDonutChart(containerId, data, colors) {
-  const container = gid(containerId);
-  if (!container) return;
-  
-  const entries = Object.entries(data || {});
-  if (!entries.length) {
-    container.innerHTML = '<div class="small" style="text-align:center;padding:20px">No data</div>';
-    return;
-  }
-
-  entries.sort((a, b) => b[1] - a[1]);
-  const total = entries.reduce((sum, [, val]) => sum + val, 0);
-  
-  let html = '<div style="padding:12px">';
-  
-  entries.forEach(([key, val], idx) => {
-    const pct = total > 0 ? ((val / total) * 100).toFixed(1) : 0;
-    const color = (colors && colors[key]) || getDefaultColor(idx);
-    const label = key.length > 40 ? key.slice(0, 40) + '…' : key;
-    
-    html += `
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px">
-        <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">
-          <div style="width:16px;height:16px;background:${color};border-radius:3px;flex-shrink:0"></div>
-          <span style="font-weight:600;color:#374151;word-break:break-word" title="${key}">${label}</span>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
-          <span style="font-size:0.85rem;color:#6b7280">${pct}%</span>
-          <span style="font-weight:800;color:#111827">${val}</span>
-        </div>
-      </div>`;
-  });
-  
-  html += '</div>';
-  container.innerHTML = html;
-}
-
-/* Render test workload balance - category-based */
-function renderTestWorkloadBalanceDonut(containerId, assigneeDist) {
-  const container = gid(containerId);
-  if (!container) return;
-  
-  const entries = Object.entries(assigneeDist || {});
-  if (!entries.length) {
-    container.innerHTML = '<div class="small" style="text-align:center;padding:20px">No workload data</div>';
-    return;
-  }
-  
-  const values = entries.map(e => e[1]);
-  const avg = values.reduce((sum, v) => sum + v, 0) / values.length;
-  
-  const workloadData = {};
-  const colors = {
-    'Overloaded (>150% avg)': '#ef4444',
-    'High (125-150% avg)': '#f59e0b',
-    'Balanced (75-125% avg)': '#10b981',
-    'Low (<75% avg)': '#6b7280'
-  };
-  
-  entries.forEach(([name, count]) => {
-    const ratio = count / avg;
-    let category;
-    if (ratio > 1.5) category = 'Overloaded (>150% avg)';
-    else if (ratio > 1.25) category = 'High (125-150% avg)';
-    else if (ratio >= 0.75) category = 'Balanced (75-125% avg)';
-    else category = 'Low (<75% avg)';
-    
-    workloadData[category] = (workloadData[category] || 0) + 1;
-  });
-  
-  renderDonutChart(containerId, workloadData, colors);
-  
-  const avgInfo = `<div class="small" style="padding:8px;text-align:center;border-top:1px solid #e5e7eb;margin-top:8px">Average workload: <strong>${avg.toFixed(1)}</strong> executions per person</div>`;
-  container.innerHTML += avgInfo;
-}
-
-/* Render test workload balance - category-based */
+/* Render data quality */
 function renderDataQuality(){
   const container = gid('dqContainer');
   if (!container) return;
@@ -1659,14 +880,12 @@ function renderDataQuality(){
 
   const validExecutions = getValidExecutions(executions);
 
-  // Issues
   const storiesWithoutTC = stories.filter(s => !testCases.some(tc => tc.storyNumber===s.storyNumber && tc.tcName));
   const tcWithoutExec = testCases.filter(tc => !validExecutions.some(e => e.storyNumber===tc.storyNumber && e.tcName===tc.tcName));
   const execWithoutAssignee = validExecutions.filter(e => !e.execAssigned || !e.execAssigned.trim());
   const defectsWithoutAssignee = defects.filter(d => (d.defectNum || d.defectName) && !d.defectAssignedTo);
   const highImpactNoTests = stories.filter(s => (s.impact==='Critical' || s.impact==='High') && !testCases.some(tc => tc.storyNumber===s.storyNumber && tc.tcName));
 
-  // Calculated vs sheet references
   const calc = {
     tc: testCases.filter(tc => tc.tcName && tc.tcName.trim()).length,
     exec: validExecutions.length,
@@ -1689,7 +908,6 @@ function renderDataQuality(){
     {label:'# Open Defects', c:calc.openDef, r:ref.openDef}
   ].filter(x => x.c !== x.r);
 
-  // Build HTML
   let html = '';
 
   html += storiesWithoutTC.length
@@ -1728,7 +946,7 @@ function renderDataQuality(){
   container.innerHTML = html;
 }
 
-// ADD stubs for missing export functions to prevent errors
+// Stubs for export functions
 function copyEmailBody(){
   alert('Email copy functionality not yet implemented');
 }
@@ -1737,15 +955,6 @@ function exportPDF(){
   alert('PDF export functionality not yet implemented');
 }
 
-function generateComparison(){
-  // Already defined in existing code
-  return null;
-}
-
-function renderComparison(){
-  // Already defined in existing code
-}
-
 /* ---------- Rendering ---------- */
 function renderDashboard(){
   // Main cards
@@ -1884,143 +1093,225 @@ function renderDashboard(){
   if (fileComparison) renderComparison();
 }
 
-/* ---------- Rendering ---------- */
-function renderDashboard(){
-  // Main cards
-  setTxt('mStories', metrics.totalStories);
-  setTxt('mPoints', metrics.totalPoints);
-  setTxt('mTC', metrics.totalTC);
-  setTxt('mExec', metrics.totalExec);
+/* REPLACE stub functions with actual implementations */
+function generateComparison() {
+  if (allFileData.length < 2) return null;
 
-  // Add quick tooltips with reference totals (from summary row)
-  if (gid('mTC')) gid('mTC').title = `Ref (sheet total): ${metrics.refs?.totalTCRef ?? 0}`;
-  if (gid('mExec')) gid('mExec').title = `Ref (sheet total): ${metrics.refs?.totalExecRef ?? 0}`;
-  if (gid('mDef')) gid('mDef').title = `Ref (sheet total): ${metrics.refs?.totalDefRef ?? 0}`;
+  const baseFile = allFileData[0];
+  const currentFile = allFileData[allFileData.length - 1];
 
-  // Executions breakdown
-  const validExecutions = getValidExecutions(globalData.executions);
-  const passedExecutions = validExecutions.filter(e => e.execStatus && e.execStatus.toLowerCase().includes('pass')).length;
-  const failedExecutions = validExecutions.filter(e => e.execStatus && e.execStatus.toLowerCase().includes('fail')).length;
-  const blockedExecutions = validExecutions.filter(e => e.execStatus && e.execStatus.toLowerCase().includes('block')).length;
+  const comparison = {
+    baseFile: baseFile.fileName,
+    currentFile: currentFile.fileName,
+    metrics: {},
+    newStories: [],
+    removedStories: [],
+    newTestCases: [],
+    removedTestCases: [],
+    newDefects: [],
+    removedDefects: []
+  };
 
-  setTxt('mPassed', passedExecutions);
-  setTxt('mFailed', failedExecutions);
-  setTxt('mBlocked', blockedExecutions);
-  setTxt('mDef', metrics.totalDef);
-  setTxt('mCov', metrics.coverage + '%');
-  setTxt('mCompl', metrics.completion + '%');
-
-  // User Stories segment
-  const storiesWithoutTC = globalData.stories.filter(s => !globalData.testCases.some(tc => tc.storyNumber===s.storyNumber && tc.tcName));
-  const highImpactCount = globalData.stories.filter(s => s.impact==='High' || s.impact==='Critical').length;
-
-  setTxt('storyTotal', metrics.totalStories);
-  setTxt('storyAvgPoints', metrics.avgPointsPerStory);
-  setTxt('storyNoTests', storiesWithoutTC.length);
-  setTxt('storyHighImpact', highImpactCount);
-
-  // Change to donut charts
-  renderDonutChart('storyStatusChart', metrics.statusDist, {
-    'Ready for Production Deployment':'#10b981','Development In Progress':'#f59e0b','Ready for Testing':'#3b82f6','Ready for Development':'#8b5cf6'
-  });
-  renderDonutChart('storyImpactChart', metrics.impactDist, {
-    'Critical':'#dc2626','High':'#ea580c','Medium':'#f59e0b','Low':'#10b981'
-  });
-  renderDonutChart('storySprintChart', metrics.sprintDist, {});
-
-  // Tests & Executions
-  setTxt('testTotal', metrics.totalTC);
-  setTxt('execTotal', metrics.totalExec);
-  setTxt('execCoverage', metrics.testEfficiency + '%');
-  const unassigned = validExecutions.filter(e => !e.execAssigned || !e.execAssigned.trim()).length;
-  setTxt('execUnassigned', unassigned);
-  setTxt('execPassed', passedExecutions);
-  setTxt('execFailed', failedExecutions);
-  setTxt('execBlocked', blockedExecutions);
-  const execPerTest = metrics.totalTC>0 ? (metrics.totalExec/metrics.totalTC).toFixed(1) : '0.0';
-  setTxt('execPerTest', execPerTest);
-
-  // NEW: render compact Exec Status by Assignee panel (columns R and S)
-  if (gid('execStatusByAssigneeMini')) {
-    renderExecStatusByAssigneeMini('execStatusByAssigneeMini');
+  // Metrics diff
+  for (const key of ['totalStories','totalPoints','totalTC','totalExec','totalDef','readyForProd','coverage','completion']) {
+    comparison.metrics[key] = {
+      base: baseFile.metrics[key],
+      current: currentFile.metrics[key],
+      diff: (parseFloat(currentFile.metrics[key]) - parseFloat(baseFile.metrics[key]))
+    };
   }
 
-  const testCasesByStory = {};
-  globalData.testCases.forEach(tc => {
-    if (tc.storyName) testCasesByStory[tc.storyName]=(testCasesByStory[tc.storyName]||0)+1;
-  });
-  // show full story name (no truncation)
-  renderChart('testCasesByStoryChart', testCasesByStory, {}, { noTruncate:true });
+  // Stories diff
+  const baseStories = new Set(baseFile.data.stories.map(s => s.storyNumber));
+  const currentStories = new Set(currentFile.data.stories.map(s => s.storyNumber));
+  comparison.newStories = currentFile.data.stories.filter(s => !baseStories.has(s.storyNumber));
+  comparison.removedStories = baseFile.data.stories.filter(s => !currentStories.has(s.storyNumber));
 
-  // Render execution status chart as donut
-  const execStatusDist = {};
-  validExecutions.forEach(e => {
-    const status = (e.execStatus && e.execStatus.trim()) || 'No Status';
-    execStatusDist[status] = (execStatusDist[status] || 0) + 1;
-  });
-  renderDonutChart('execStatusChart', execStatusDist, {
-    'Pass':'#10b981','Passed':'#10b981','Failed':'#ef4444','Fail':'#ef4444',
-    'Blocked':'#f59e0b','In Progress':'#3b82f6','Not Run':'#6b7280','Pending':'#8b5cf6','No Status':'#6b7280'
-  });
+  // Test cases diff
+  const baseTC = new Set(baseFile.data.testCases.map(tc => `${tc.storyNumber}||${tc.tcName}`));
+  const currentTC = new Set(currentFile.data.testCases.map(tc => `${tc.storyNumber}||${tc.tcName}`));
+  comparison.newTestCases = currentFile.data.testCases.filter(tc => !baseTC.has(`${tc.storyNumber}||${tc.tcName}`));
+  comparison.removedTestCases = baseFile.data.testCases.filter(tc => !currentTC.has(`${tc.storyNumber}||${tc.tcName}`));
 
-  renderDonutChart('execByAssigneeChart', metrics.execAssigneeDist, {});
-  if (gid('testWorkloadChart')) renderTestWorkloadBalanceDonut('testWorkloadChart', metrics.execAssigneeDist);
-  if (gid('testCoverageHeatmapChart')) renderTestCoverageHeatmap('testCoverageHeatmapChart');
+  // Defects diff
+  const baseDef = new Set(baseFile.data.defects.map(d => `${d.storyNumber}||${d.defectNum}||${d.defectName}`));
+  const currentDef = new Set(currentFile.data.defects.map(d => `${d.storyNumber}||${d.defectNum}||${d.defectName}`));
+  comparison.newDefects = currentFile.data.defects.filter(d => !baseDef.has(`${d.storyNumber}||${d.defectNum}||${d.defectName}`));
+  comparison.removedDefects = baseFile.data.defects.filter(d => !currentDef.has(`${d.storyNumber}||${d.defectNum}||${d.defectName}`));
 
-  // Defects
-  const criticalDefects = globalData.defects.filter(d => {
-    const s = globalData.stories.find(x => x.storyNumber===d.storyNumber);
-    return (s?.impact)==='Critical';
-  }).length;
-
-  // Use calculated open defects and attach reference tooltip
-  setTxt('defectTotal', metrics.totalDef);
-  setTxt('defectDensityVal', metrics.defectDensity);
-  setTxt('defectCritical', criticalDefects);
-  setTxt('defectOpen', metrics.openDefects);
-  if (gid('defectOpen')) gid('defectOpen').title = `Ref (sheet # Open Defects): ${metrics.refs?.openDefectsRef ?? 0}`;
-  setTxt('defectPerStory', (metrics.totalDef/Math.max(1,metrics.totalStories)).toFixed(1));
-
-  const defectStatusDist = {};
-  globalData.defects.forEach(d => {
-    if (d.defectStatus) defectStatusDist[d.defectStatus]=(defectStatusDist[d.defectStatus]||0)+1;
-  });
-  renderDonutChart('defectStatusChart', defectStatusDist, {});
-
-  const defectImpactDist = {};
-  globalData.defects.forEach(d => {
-    const s = globalData.stories.find(x => x.storyNumber===d.storyNumber);
-    const impact = s?.impact || 'Unknown';
-    defectImpactDist[impact]=(defectImpactDist[impact]||0)+1;
-  });
-  renderDonutChart('defectImpactChart', defectImpactDist, {'Critical':'#dc2626','High':'#ea580c','Medium':'#f59e0b','Low':'#10b981'});
-
-  // Defect Trend Analysis as donut
-  if (gid('defectTrendChart')) {
-    // Prepare data for donut: group by impact, value is open defects
-    const defects = globalData.defects||[];
-    const trendDonut = {};
-    const trendColors = {};
-    defects.forEach(d=>{
-      const s = globalData.stories.find(x=>x.storyNumber===d.storyNumber);
-      const impact = s?.impact || 'Unknown';
-      if (d.defectStatus !== 'Closed' && d.defectStatus !== 'Resolved') {
-        trendDonut[impact] = (trendDonut[impact]||0)+1;
-      }
-      trendColors[impact] = impact === 'Critical' ? '#dc2626' : impact === 'High' ? '#ea580c' : impact === 'Medium' ? '#f59e0b' : '#10b981';
-    });
-    renderDonutChart('defectTrendChart', trendDonut, trendColors);
-  }
-
-  // Ensure defects table is rendered
-  if (gid('defectsByStoryChart')) {
-    renderDefectsTable('defectsByStoryChart');
-  }
-
-  // Data quality
-  renderDataQuality();
-  if (fileComparison) renderComparison();
+  return comparison;
 }
+
+function renderComparison() {
+  const section = document.getElementById('comparisonSection');
+  const container = document.getElementById('comparisonContainer');
+  if (!section || !container || !fileComparison) return;
+  
+  section.style.display = 'block';
+
+  const cmp = fileComparison;
+  const diffColor = v => v > 0 ? '#10b981' : v < 0 ? '#ef4444' : '#6b7280';
+  const diffFmt = v => `<span style="color:${diffColor(v)};font-weight:700">${v>0?'+':''}${v}</span>`;
+
+  // Calculate total changes
+  const totalChanges = cmp.newStories.length + cmp.removedStories.length + 
+                      cmp.newTestCases.length + cmp.removedTestCases.length + 
+                      cmp.newDefects.length + cmp.removedDefects.length;
+
+  let html = `
+    <div style="background:#f8fafc;border:2px solid #e2e8f0;border-radius:12px;padding:20px;margin-bottom:20px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div>
+          <div style="font-size:1.1rem;font-weight:700;color:#1e293b;margin-bottom:4px">
+            📊 File Comparison Summary
+          </div>
+          <div style="color:#64748b;font-size:0.9rem">
+            Comparing ${allFileData.length} uploaded files
+          </div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:2rem;font-weight:700;color:#3b82f6">${totalChanges}</div>
+          <div style="color:#64748b;font-size:0.8rem">Total Changes</div>
+        </div>
+      </div>
+      
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+        <div>
+          <div style="font-weight:600;margin-bottom:8px;color:#374151">📈 Metric Changes</div>
+          <div style="background:#ffffff;padding:12px;border-radius:8px;border:1px solid #e5e7eb;box-shadow:0 1px 3px rgba(0,0,0,0.1)">
+            ${Object.entries(cmp.metrics).map(([k,v])=>`
+              <div style="margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">
+                <span style="color:#4b5563">${k.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}:</span>
+                <div style="text-align:right">
+                  <span style="color:#6b7280;font-size:0.9rem">${v.base}</span> → 
+                  <span style="color:#111827;font-weight:600">${v.current}</span>
+                  <span style="margin-left:8px;font-weight:600">${diffFmt(v.diff)}</span>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+        <div>
+          <div style="font-weight:600;margin-bottom:8px;color:#374151">📋 Content Changes</div>
+          <div style="background:#ffffff;padding:12px;border-radius:8px;border:1px solid #e5e7eb;box-shadow:0 1px 3px rgba(0,0,0,0.1)">
+            <div style="margin-bottom:6px;display:flex;justify-content:space-between">
+              <span>New Stories:</span> 
+              <span style="color:#10b981;font-weight:700">${cmp.newStories.length}</span>
+            </div>
+            <div style="margin-bottom:6px;display:flex;justify-content:space-between">
+              <span>Removed Stories:</span> 
+              <span style="color:#ef4444;font-weight:700">${cmp.removedStories.length}</span>
+            </div>
+            <div style="margin-bottom:6px;display:flex;justify-content:space-between">
+              <span>New Test Cases:</span> 
+              <span style="color:#10b981;font-weight:700">${cmp.newTestCases.length}</span>
+            </div>
+            <div style="margin-bottom:6px;display:flex;justify-content:space-between">
+              <span>Removed Test Cases:</span> 
+              <span style="color:#ef4444;font-weight:700">${cmp.removedTestCases.length}</span>
+            </div>
+            <div style="margin-bottom:6px;display:flex;justify-content:space-between">
+              <span>New Defects:</span> 
+              <span style="color:#ef4444;font-weight:700">${cmp.newDefects.length}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between">
+              <span>Removed Defects:</span> 
+              <span style="color:#10b981;font-weight:700">${cmp.removedDefects.length}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="background:#f1f5f9;padding:12px;border-radius:8px;border:1px solid #cbd5e1">
+        <div style="font-weight:600;margin-bottom:8px;color:#374151">📁 Files Compared</div>
+        <div style="color:#64748b;font-size:0.9rem">
+          <strong>Base file:</strong> ${escapeHtml(cmp.baseFile)}<br>
+          <strong>Latest file:</strong> ${escapeHtml(cmp.currentFile)}
+        </div>
+      </div>
+    </div>
+
+    <!-- Detailed Changes Section -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+      <div>
+        ${cmp.newStories.length ? `
+          <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;margin-bottom:16px">
+            <div style="font-weight:600;color:#166534;margin-bottom:8px;display:flex;align-items:center">
+              ➕ New Stories (${cmp.newStories.length})
+            </div>
+            <div style="font-size:0.85rem;color:#166534">
+              ${cmp.newStories.map(s=>`• ${escapeHtml(s.storyNumber)}: ${escapeHtml(s.storyName)}`).join('<br>')}
+            </div>
+          </div>
+        ` : ''}
+        ${cmp.removedStories.length ? `
+          <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:16px;margin-bottom:16px">
+            <div style="font-weight:600;color:#dc2626;margin-bottom:8px;display:flex;align-items:center">
+              ➖ Removed Stories (${cmp.removedStories.length})
+            </div>
+            <div style="font-size:0.85rem;color:#dc2626">
+              ${cmp.removedStories.map(s=>`• ${escapeHtml(s.storyNumber)}: ${escapeHtml(s.storyName)}`).join('<br>')}
+            </div>
+          </div>
+        ` : ''}
+        ${cmp.newTestCases.length ? `
+          <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;margin-bottom:16px">
+            <div style="font-weight:600;color:#166534;margin-bottom:8px;display:flex;align-items:center">
+              ➕ New Test Cases (${cmp.newTestCases.length})
+            </div>
+            <div style="font-size:0.85rem;color:#166534">
+              ${cmp.newTestCases.map(tc=>`• ${escapeHtml(tc.storyNumber)}: ${escapeHtml(tc.tcName)}`).join('<br>')}
+            </div>
+          </div>
+        ` : ''}
+        ${cmp.removedTestCases.length ? `
+          <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:16px;margin-bottom:16px">
+            <div style="font-weight:600;color:#dc2626;margin-bottom:8px;display:flex;align-items:center">
+              ➖ Removed Test Cases (${cmp.removedTestCases.length})
+            </div>
+            <div style="font-size:0.85rem;color:#dc2626">
+              ${cmp.removedTestCases.map(tc=>`• ${escapeHtml(tc.storyNumber)}: ${escapeHtml(tc.tcName)}`).join('<br>')}
+            </div>
+          </div>
+        ` : ''}
+      </div>
+      
+      <div>
+        ${cmp.newDefects.length ? `
+          <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:16px;margin-bottom:16px">
+            <div style="font-weight:600;color:#dc2626;margin-bottom:8px;display:flex;align-items:center">
+              ⚠️ New Defects (${cmp.newDefects.length})
+            </div>
+            <div style="font-size:0.85rem;color:#dc2626">
+              ${cmp.newDefects.map(d=>`• ${escapeHtml(d.storyNumber)}: ${escapeHtml(d.defectNum||d.defectName)}`).join('<br>')}
+            </div>
+          </div>
+        ` : ''}
+        ${cmp.removedDefects.length ? `
+          <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;margin-bottom:16px">
+            <div style="font-weight:600;color:#166534;margin-bottom:8px;display:flex;align-items:center">
+              ✅ Removed Defects (${cmp.removedDefects.length})
+            </div>
+            <div style="font-size:0.85rem;color:#166534">
+              ${cmp.removedDefects.map(d=>`• ${escapeHtml(d.storyNumber)}: ${escapeHtml(d.defectNum||d.defectName)}`).join('<br>')}
+            </div>
+          </div>
+        ` : ''}
+      </div>
+    </div>
+
+    ${totalChanges === 0 ? `
+      <div style="background:#f8fafc;border:2px dashed #cbd5e1;border-radius:12px;padding:40px;text-align:center;color:#64748b">
+        <div style="font-size:3rem;margin-bottom:16px">✅</div>
+        <div style="font-size:1.1rem;font-weight:600;margin-bottom:8px">No Changes Detected</div>
+        <div>The files appear to be identical in content.</div>
+      </div>
+    ` : ''}
+  `;
+  container.innerHTML = html;
+}
+
+// --- existing code ---
 </script>
 </body>
 </html>
