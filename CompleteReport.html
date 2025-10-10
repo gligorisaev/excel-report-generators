@@ -1151,167 +1151,69 @@ function renderComparison() {
 
   const cmp = fileComparison;
   const diffColor = v => v > 0 ? '#10b981' : v < 0 ? '#ef4444' : '#6b7280';
-  const diffFmt = v => `<span style="color:${diffColor(v)};font-weight:700">${v>0?'+':''}${v}</span>`;
+  const diffIcon = v => v > 0 ? '📈' : v < 0 ? '📉' : '➡️';
+  const diffFmt = (v, isPercent = false) => {
+    const numVal = Number(v) || 0;
+    const formatted = isPercent ? numVal.toFixed(1) : Math.round(numVal);
+    return `<span style="color:${diffColor(numVal)};font-weight:700">${numVal>0?'+':''}${formatted}${isPercent?'%':''}</span>`;
+  };
 
-  // Calculate total changes
-  const totalChanges = cmp.newStories.length + cmp.removedStories.length + 
-                      cmp.newTestCases.length + cmp.removedTestCases.length + 
-                      cmp.newDefects.length + cmp.removedDefects.length;
-
+  // Build simplified comparison HTML
   let html = `
-    <div style="background:#f8fafc;border:2px solid #e2e8f0;border-radius:12px;padding:20px;margin-bottom:20px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <div style="background:#f8fafc;border:2px solid #e2e8f0;border-radius:12px;padding:24px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;padding-bottom:16px;border-bottom:2px solid #e2e8f0">
         <div>
-          <div style="font-size:1.1rem;font-weight:700;color:#1e293b;margin-bottom:4px">
-            📊 File Comparison Summary
+          <div style="font-size:1.2rem;font-weight:700;color:#1e293b;margin-bottom:4px">
+            📊 Files Comparison
           </div>
-          <div style="color:#64748b;font-size:0.9rem">
-            Comparing ${allFileData.length} uploaded files
+          <div style="color:#64748b;font-size:0.9rem;margin-top:4px">
+            <strong style="color:#3b82f6">${escapeHtml(cmp.baseFile)}</strong> 
+            <span style="margin:0 8px">→</span>
+            <strong style="color:#6366f1">${escapeHtml(cmp.currentFile)}</strong>
           </div>
-        </div>
-        <div style="text-align:right">
-          <div style="font-size:2rem;font-weight:700;color:#3b82f6">${totalChanges}</div>
-          <div style="color:#64748b;font-size:0.8rem">Total Changes</div>
         </div>
       </div>
-      
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-        <div>
-          <div style="font-weight:600;margin-bottom:8px;color:#374151">📈 Metric Changes</div>
-          <div style="background:#ffffff;padding:12px;border-radius:8px;border:1px solid #e5e7eb;box-shadow:0 1px 3px rgba(0,0,0,0.1)">
-            ${Object.entries(cmp.metrics).map(([k,v])=>`
-              <div style="margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">
-                <span style="color:#4b5563">${k.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}:</span>
-                <div style="text-align:right">
-                  <span style="color:#6b7280;font-size:0.9rem">${v.base}</span> → 
-                  <span style="color:#111827;font-weight:600">${v.current}</span>
-                  <span style="margin-left:8px;font-weight:600">${diffFmt(v.diff)}</span>
-                </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px">
+        ${Object.entries(cmp.metrics).map(([key, v]) => {
+          const isPercent = key === 'coverage' || key === 'completion';
+          const label = key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+          const diff = v.diff;
+          
+          return `
+            <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,0.05)">
+              <div style="font-weight:600;color:#64748b;font-size:0.85rem;margin-bottom:12px;text-transform:uppercase;letter-spacing:0.5px">
+                ${diffIcon(diff)} ${label}
               </div>
-            `).join('')}
-          </div>
-        </div>
-        <div>
-          <div style="font-weight:600;margin-bottom:8px;color:#374151">📋 Content Changes</div>
-          <div style="background:#ffffff;padding:12px;border-radius:8px;border:1px solid #e5e7eb;box-shadow:0 1px 3px rgba(0,0,0,0.1)">
-            <div style="margin-bottom:6px;display:flex;justify-content:space-between">
-              <span>New Stories:</span> 
-              <span style="color:#10b981;font-weight:700">${cmp.newStories.length}</span>
+              <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+                <span style="color:#6b7280;font-size:0.9rem">Base:</span>
+                <span style="color:#374151;font-weight:600;font-size:1.1rem">${v.base}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+                <span style="color:#6b7280;font-size:0.9rem">Current:</span>
+                <span style="color:#111827;font-weight:700;font-size:1.1rem">${v.current}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:baseline;padding-top:8px;border-top:1px solid #f1f5f9">
+                <span style="color:#6b7280;font-size:0.9rem;font-weight:600">Difference:</span>
+                <span style="font-size:1.2rem">${diffFmt(diff, isPercent)}</span>
+              </div>
             </div>
-            <div style="margin-bottom:6px;display:flex;justify-content:space-between">
-              <span>Removed Stories:</span> 
-              <span style="color:#ef4444;font-weight:700">${cmp.removedStories.length}</span>
-            </div>
-            <div style="margin-bottom:6px;display:flex;justify-content:space-between">
-              <span>New Test Cases:</span> 
-              <span style="color:#10b981;font-weight:700">${cmp.newTestCases.length}</span>
-            </div>
-            <div style="margin-bottom:6px;display:flex;justify-content:space-between">
-              <span>Removed Test Cases:</span> 
-              <span style="color:#ef4444;font-weight:700">${cmp.removedTestCases.length}</span>
-            </div>
-            <div style="margin-bottom:6px;display:flex;justify-content:space-between">
-              <span>New Defects:</span> 
-              <span style="color:#ef4444;font-weight:700">${cmp.newDefects.length}</span>
-            </div>
-            <div style="display:flex;justify-content:space-between">
-              <span>Removed Defects:</span> 
-              <span style="color:#10b981;font-weight:700">${cmp.removedDefects.length}</span>
-            </div>
-          </div>
-        </div>
+          `;
+        }).join('')}
       </div>
 
-      <div style="background:#f1f5f9;padding:12px;border-radius:8px;border:1px solid #cbd5e1">
-        <div style="font-weight:600;margin-bottom:8px;color:#374151">📁 Files Compared</div>
-        <div style="color:#64748b;font-size:0.9rem">
-          <strong>Base file:</strong> ${escapeHtml(cmp.baseFile)}<br>
-          <strong>Latest file:</strong> ${escapeHtml(cmp.currentFile)}
+      ${Object.values(cmp.metrics).every(v => v.diff === 0) ? `
+        <div style="background:#f0fdf4;border:2px solid #bbf7d0;border-radius:12px;padding:32px;text-align:center;margin-top:20px">
+          <div style="font-size:3rem;margin-bottom:12px">✅</div>
+          <div style="font-size:1.1rem;font-weight:700;color:#166534;margin-bottom:8px">No Changes Detected</div>
+          <div style="color:#166534">All metrics are identical between the two files.</div>
         </div>
-      </div>
+      ` : ''}
     </div>
-
-    <!-- Detailed Changes Section -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
-      <div>
-        ${cmp.newStories.length ? `
-          <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;margin-bottom:16px">
-            <div style="font-weight:600;color:#166534;margin-bottom:8px;display:flex;align-items:center">
-              ➕ New Stories (${cmp.newStories.length})
-            </div>
-            <div style="font-size:0.85rem;color:#166534">
-              ${cmp.newStories.map(s=>`• ${escapeHtml(s.storyNumber)}: ${escapeHtml(s.storyName)}`).join('<br>')}
-            </div>
-          </div>
-        ` : ''}
-        ${cmp.removedStories.length ? `
-          <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:16px;margin-bottom:16px">
-            <div style="font-weight:600;color:#dc2626;margin-bottom:8px;display:flex;align-items:center">
-              ➖ Removed Stories (${cmp.removedStories.length})
-            </div>
-            <div style="font-size:0.85rem;color:#dc2626">
-              ${cmp.removedStories.map(s=>`• ${escapeHtml(s.storyNumber)}: ${escapeHtml(s.storyName)}`).join('<br>')}
-            </div>
-          </div>
-        ` : ''}
-        ${cmp.newTestCases.length ? `
-          <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;margin-bottom:16px">
-            <div style="font-weight:600;color:#166534;margin-bottom:8px;display:flex;align-items:center">
-              ➕ New Test Cases (${cmp.newTestCases.length})
-            </div>
-            <div style="font-size:0.85rem;color:#166534">
-              ${cmp.newTestCases.map(tc=>`• ${escapeHtml(tc.storyNumber)}: ${escapeHtml(tc.tcName)}`).join('<br>')}
-            </div>
-          </div>
-        ` : ''}
-        ${cmp.removedTestCases.length ? `
-          <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:16px;margin-bottom:16px">
-            <div style="font-weight:600;color:#dc2626;margin-bottom:8px;display:flex;align-items:center">
-              ➖ Removed Test Cases (${cmp.removedTestCases.length})
-            </div>
-            <div style="font-size:0.85rem;color:#dc2626">
-              ${cmp.removedTestCases.map(tc=>`• ${escapeHtml(tc.storyNumber)}: ${escapeHtml(tc.tcName)}`).join('<br>')}
-            </div>
-          </div>
-        ` : ''}
-      </div>
-      
-      <div>
-        ${cmp.newDefects.length ? `
-          <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:16px;margin-bottom:16px">
-            <div style="font-weight:600;color:#dc2626;margin-bottom:8px;display:flex;align-items:center">
-              ⚠️ New Defects (${cmp.newDefects.length})
-            </div>
-            <div style="font-size:0.85rem;color:#dc2626">
-              ${cmp.newDefects.map(d=>`• ${escapeHtml(d.storyNumber)}: ${escapeHtml(d.defectNum||d.defectName)}`).join('<br>')}
-            </div>
-          </div>
-        ` : ''}
-        ${cmp.removedDefects.length ? `
-          <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;margin-bottom:16px">
-            <div style="font-weight:600;color:#166534;margin-bottom:8px;display:flex;align-items:center">
-              ✅ Removed Defects (${cmp.removedDefects.length})
-            </div>
-            <div style="font-size:0.85rem;color:#166534">
-              ${cmp.removedDefects.map(d=>`• ${escapeHtml(d.storyNumber)}: ${escapeHtml(d.defectNum||d.defectName)}`).join('<br>')}
-            </div>
-          </div>
-        ` : ''}
-      </div>
-    </div>
-
-    ${totalChanges === 0 ? `
-      <div style="background:#f8fafc;border:2px dashed #cbd5e1;border-radius:12px;padding:40px;text-align:center;color:#64748b">
-        <div style="font-size:3rem;margin-bottom:16px">✅</div>
-        <div style="font-size:1.1rem;font-weight:600;margin-bottom:8px">No Changes Detected</div>
-        <div>The files appear to be identical in content.</div>
-      </div>
-    ` : ''}
   `;
+  
   container.innerHTML = html;
 }
-
-// --- existing code ---
 </script>
 </body>
 </html>
