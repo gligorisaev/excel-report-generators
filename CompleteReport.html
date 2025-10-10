@@ -378,13 +378,13 @@ async function processFiles(files){
       });
     }
 
-    // Use the last file as the main report
-    const primaryFile = allFileData[allFileData.length - 1];
-    globalData = primaryFile.data;
-    metrics = primaryFile.metrics;
+    // Always use the newest file (last uploaded) as the main report
+    const newestFile = allFileData[allFileData.length - 1];
+    globalData = newestFile.data;
+    metrics = newestFile.metrics;
 
-    // Generate comparison if multiple files
-    if (allFileData.length > 1) {
+    // Generate comparison if 2 or more files are uploaded
+    if (allFileData.length >= 2) {
       fileComparison = generateComparison();
     }
 
@@ -1170,23 +1170,6 @@ html += `
 `;
 
 
-  // Add comparison section only if more than one file is uploaded
-  if (fileComparison) {
-    html += `
-      <div style="margin-top:48px;padding:24px;background:#f1f5f9;border-radius:14px;border:2px solid #e5e7eb">
-        <div style="font-weight:700;color:#1e293b;margin-bottom:14px;font-size:1.2rem">📊 Differences Between Uploaded Files</div>
-        <div style="font-size:1.15rem;color:#374151">
-          <strong>Base file:</strong> ${fileComparison.baseFile}<br>
-          <strong>Compared to:</strong> ${fileComparison.currentFile}<br>
-          <div style="margin-top:14px">
-            ${Object.entries(fileComparison.metrics).map(([k,v])=>`
-              <div>${k}: ${v.base} → ${v.current} (${v.diff>0?'+':''}${v.diff})</div>
-            `).join('')}
-          </div>
-        </div>
-      </div>
-    `;
-  }
 
   // Footer
   html += `
@@ -1396,50 +1379,160 @@ function renderComparison() {
   const diffColor = v => v > 0 ? '#10b981' : v < 0 ? '#ef4444' : '#6b7280';
   const diffFmt = v => `<span style="color:${diffColor(v)};font-weight:700">${v>0?'+':''}${v}</span>`;
 
+  // Calculate total changes
+  const totalChanges = cmp.newStories.length + cmp.removedStories.length + 
+                      cmp.newTestCases.length + cmp.removedTestCases.length + 
+                      cmp.newDefects.length + cmp.removedDefects.length;
+
   let html = `
-    <div style="margin-bottom:12px">
-      <strong>Base file:</strong> ${cmp.baseFile}<br>
-      <strong>Compared to:</strong> ${cmp.currentFile}
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-      <div>
-        <div style="font-weight:600;margin-bottom:6px">Metric Differences</div>
-        <div style="background:#f9fafb;padding:10px;border-radius:6px;border:1px solid #e5e7eb">
-          ${Object.entries(cmp.metrics).map(([k,v])=>`
-            <div style="margin-bottom:4px">${k}: ${v.base} → ${v.current} (${diffFmt(v.diff)})</div>
-          `).join('')}
+    <div style="background:#f8fafc;border:2px solid #e2e8f0;border-radius:12px;padding:20px;margin-bottom:20px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div>
+          <div style="font-size:1.1rem;font-weight:700;color:#1e293b;margin-bottom:4px">
+            📊 File Comparison Summary
+          </div>
+          <div style="color:#64748b;font-size:0.9rem">
+            Comparing ${allFileData.length} uploaded files
+          </div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:2rem;font-weight:700;color:#3b82f6">${totalChanges}</div>
+          <div style="color:#64748b;font-size:0.8rem">Total Changes</div>
         </div>
       </div>
-      <div>
-        <div style="font-weight:600;margin-bottom:6px">Summary</div>
-               <div style="background:#f9fafb;padding:10px;border-radius:6px;border:1px solid #e5e7eb">
-          <div>New Stories: <span style="color:#10b981;font-weight:700">${cmp.newStories.length}</span></div>
-          <div>Removed Stories: <span style="color:#ef4444;font-weight:700">${cmp.removedStories.length}</span></div>
-          <div>New Test Cases: <span style="color:#10b981;font-weight:700">${cmp.newTestCases.length}</span></div>
-          <div>Removed Test Cases: <span style="color:#ef4444;font-weight:700">${cmp.removedTestCases.length}</span></div>
-          <div>New Defects: <span style="color:#ef4444;font-weight:700">${cmp.newDefects.length}</span></div>
-          <div>Removed Defects: <span style="color:#10b981;font-weight:700">${cmp.removedDefects.length}</span></div>
+      
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+        <div>
+          <div style="font-weight:600;margin-bottom:8px;color:#374151">📈 Metric Changes</div>
+          <div style="background:#ffffff;padding:12px;border-radius:8px;border:1px solid #e5e7eb;box-shadow:0 1px 3px rgba(0,0,0,0.1)">
+            ${Object.entries(cmp.metrics).map(([k,v])=>`
+              <div style="margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">
+                <span style="color:#4b5563">${k.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}:</span>
+                <div style="text-align:right">
+                  <span style="color:#6b7280;font-size:0.9rem">${v.base}</span> → 
+                  <span style="color:#111827;font-weight:600">${v.current}</span>
+                  <span style="margin-left:8px;font-weight:600">${diffFmt(v.diff)}</span>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+        <div>
+          <div style="font-weight:600;margin-bottom:8px;color:#374151">📋 Content Changes</div>
+          <div style="background:#ffffff;padding:12px;border-radius:8px;border:1px solid #e5e7eb;box-shadow:0 1px 3px rgba(0,0,0,0.1)">
+            <div style="margin-bottom:6px;display:flex;justify-content:space-between">
+              <span>New Stories:</span> 
+              <span style="color:#10b981;font-weight:700">${cmp.newStories.length}</span>
+            </div>
+            <div style="margin-bottom:6px;display:flex;justify-content:space-between">
+              <span>Removed Stories:</span> 
+              <span style="color:#ef4444;font-weight:700">${cmp.removedStories.length}</span>
+            </div>
+            <div style="margin-bottom:6px;display:flex;justify-content:space-between">
+              <span>New Test Cases:</span> 
+              <span style="color:#10b981;font-weight:700">${cmp.newTestCases.length}</span>
+            </div>
+            <div style="margin-bottom:6px;display:flex;justify-content:space-between">
+              <span>Removed Test Cases:</span> 
+              <span style="color:#ef4444;font-weight:700">${cmp.removedTestCases.length}</span>
+            </div>
+            <div style="margin-bottom:6px;display:flex;justify-content:space-between">
+              <span>New Defects:</span> 
+              <span style="color:#ef4444;font-weight:700">${cmp.newDefects.length}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between">
+              <span>Removed Defects:</span> 
+              <span style="color:#10b981;font-weight:700">${cmp.removedDefects.length}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="background:#f1f5f9;padding:12px;border-radius:8px;border:1px solid #cbd5e1">
+        <div style="font-weight:600;margin-bottom:8px;color:#374151">📁 Files Compared</div>
+        <div style="color:#64748b;font-size:0.9rem">
+          <strong>Base file:</strong> ${cmp.baseFile}<br>
+          <strong>Latest file:</strong> ${cmp.currentFile}
         </div>
       </div>
     </div>
-    <div style="margin-bottom:8px">
-      ${cmp.newStories.length ? `<div style="font-weight:600;color:#10b981;margin-bottom:4px">New Stories:</div>
-        <div style="font-size:0.85rem">${cmp.newStories.map(s=>`• ${s.storyNumber}: ${s.storyName}`).join('<br>')}</div>` : ''}
-      ${cmp.removedStories.length ? `<div style="font-weight:600;color:#ef4444;margin-top:8px;margin-bottom:4px">Removed Stories:</div>
-        <div style="font-size:0.85rem">${cmp.removedStories.map(s=>`• ${s.storyNumber}: ${s.storyName}`).join('<br>')}</div>` : ''}
+
+    <!-- Detailed Changes Section -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+      <div>
+        ${cmp.newStories.length ? `
+          <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;margin-bottom:16px">
+            <div style="font-weight:600;color:#166534;margin-bottom:8px;display:flex;align-items:center">
+              ➕ New Stories (${cmp.newStories.length})
+            </div>
+            <div style="font-size:0.85rem;color:#166534">
+              ${cmp.newStories.map(s=>`• ${s.storyNumber}: ${s.storyName}`).join('<br>')}
+            </div>
+          </div>
+        ` : ''}
+        ${cmp.removedStories.length ? `
+          <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:16px;margin-bottom:16px">
+            <div style="font-weight:600;color:#dc2626;margin-bottom:8px;display:flex;align-items:center">
+              ➖ Removed Stories (${cmp.removedStories.length})
+            </div>
+            <div style="font-size:0.85rem;color:#dc2626">
+              ${cmp.removedStories.map(s=>`• ${s.storyNumber}: ${s.storyName}`).join('<br>')}
+            </div>
+          </div>
+        ` : ''}
+        ${cmp.newTestCases.length ? `
+          <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;margin-bottom:16px">
+            <div style="font-weight:600;color:#166534;margin-bottom:8px;display:flex;align-items:center">
+              ➕ New Test Cases (${cmp.newTestCases.length})
+            </div>
+            <div style="font-size:0.85rem;color:#166534">
+              ${cmp.newTestCases.map(tc=>`• ${tc.storyNumber}: ${tc.tcName}`).join('<br>')}
+            </div>
+          </div>
+        ` : ''}
+        ${cmp.removedTestCases.length ? `
+          <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:16px;margin-bottom:16px">
+            <div style="font-weight:600;color:#dc2626;margin-bottom:8px;display:flex;align-items:center">
+              ➖ Removed Test Cases (${cmp.removedTestCases.length})
+            </div>
+            <div style="font-size:0.85rem;color:#dc2626">
+              ${cmp.removedTestCases.map(tc=>`• ${tc.storyNumber}: ${tc.tcName}`).join('<br>')}
+            </div>
+          </div>
+        ` : ''}
+      </div>
+      
+      <div>
+        ${cmp.newDefects.length ? `
+          <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:16px;margin-bottom:16px">
+            <div style="font-weight:600;color:#dc2626;margin-bottom:8px;display:flex;align-items:center">
+              ⚠️ New Defects (${cmp.newDefects.length})
+            </div>
+            <div style="font-size:0.85rem;color:#dc2626">
+              ${cmp.newDefects.map(d=>`• ${d.storyNumber}: ${d.defectNum||d.defectName}`).join('<br>')}
+            </div>
+          </div>
+        ` : ''}
+        ${cmp.removedDefects.length ? `
+          <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;margin-bottom:16px">
+            <div style="font-weight:600;color:#166534;margin-bottom:8px;display:flex;align-items:center">
+              ✅ Removed Defects (${cmp.removedDefects.length})
+            </div>
+            <div style="font-size:0.85rem;color:#166534">
+              ${cmp.removedDefects.map(d=>`• ${d.storyNumber}: ${d.defectNum||d.defectName}`).join('<br>')}
+            </div>
+          </div>
+        ` : ''}
+      </div>
     </div>
-    <div style="margin-bottom:8px">
-      ${cmp.newTestCases.length ? `<div style="font-weight:600;color:#10b981;margin-bottom:4px">New Test Cases:</div>
-        <div style="font-size:0.85rem">${cmp.newTestCases.map(tc=>`• ${tc.storyNumber}: ${tc.tcName}`).join('<br>')}</div>` : ''}
-      ${cmp.removedTestCases.length ? `<div style="font-weight:600;color:#ef4444;margin-top:8px;margin-bottom:4px">Removed Test Cases:</div>
-        <div style="font-size:0.85rem">${cmp.removedTestCases.map(tc=>`• ${tc.storyNumber}: ${tc.tcName}`).join('<br>')}</div>` : ''}
-    </div>
-    <div style="margin-bottom:8px">
-      ${cmp.newDefects.length ? `<div style="font-weight:600;color:#ef4444;margin-bottom:4px">New Defects:</div>
-        <div style="font-size:0.85rem">${cmp.newDefects.map(d=>`• ${d.storyNumber}: ${d.defectNum||d.defectName}`).join('<br>')}</div>` : ''}
-      ${cmp.removedDefects.length ? `<div style="font-weight:600;color:#10b981;margin-top:8px;margin-bottom:4px">Removed Defects:</div>
-        <div style="font-size:0.85rem">${cmp.removedDefects.map(d=>`• ${d.storyNumber}: ${d.defectNum||d.defectName}`).join('<br>')}</div>` : ''}
-    </div>
+
+    ${totalChanges === 0 ? `
+      <div style="background:#f8fafc;border:2px dashed #cbd5e1;border-radius:12px;padding:40px;text-align:center;color:#64748b">
+        <div style="font-size:3rem;margin-bottom:16px">✅</div>
+        <div style="font-size:1.1rem;font-weight:600;margin-bottom:8px">No Changes Detected</div>
+        <div>The files appear to be identical in content.</div>
+      </div>
+    ` : ''}
   `;
   container.innerHTML = html;
 }
