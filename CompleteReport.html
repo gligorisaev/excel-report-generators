@@ -479,7 +479,7 @@ function parseData(workbook){
     if (tcName){
       testCases.push({ storyNumber: currentStoryNumber, storyName: currentStoryName, tcName });
     }
-    if (tceNum || execAssigned){
+    if (tceNum && tceNum.trim()){
       executions.push({ 
         storyNumber: currentStoryNumber, 
         storyName: currentStoryName, 
@@ -518,7 +518,7 @@ function calculateMetrics(data){
   const totalPoints = stories.reduce((s,x)=>s+(x.points||0),0);
 
   const totalTC = testCases.filter(tc => tc.tcName && tc.tcName.trim()).length;
-  const totalExec = executions.filter(e => e.tceNum || e.execAssigned).length;
+  const totalExec = executions.filter(e => e.tceNum && e.tceNum.trim()).length;
   const totalDef = defects.filter(d => d.defectNum || d.defectName).length;
 
   const storiesWithTC = new Set();
@@ -537,7 +537,7 @@ function calculateMetrics(data){
 
   const execAssigneeDist = {};
   for (const e of executions){
-    if (e.tceNum || (e.execAssigned && e.execAssigned.trim())){
+    if (e.tceNum && e.tceNum.trim()){
       const who = (e.execAssigned && e.execAssigned.trim()) || '(unassigned)';
       execAssigneeDist[who]=(execAssigneeDist[who]||0)+1;
     }
@@ -546,7 +546,7 @@ function calculateMetrics(data){
   const coverage = totalStories ? ((storiesWithTC.size/totalStories)*100).toFixed(1) : '0.0';
   const completion = totalStories ? ((readyForProd/totalStories)*100).toFixed(1) : '0.0';
   const defectDensity = totalPoints>0 ? (totalDef/totalPoints).toFixed(2) : '0.00';
-  const executedTests = executions.filter(e => e.execAssigned && e.execAssigned.trim()).length;
+  const executedTests = executions.filter(e => e.tceNum && e.tceNum.trim() && e.execAssigned && e.execAssigned.trim()).length;
   const testEfficiency = totalTC>0 ? ((executedTests/totalTC)*100).toFixed(1) : '0.0';
   const avgPointsPerStory = totalStories>0 ? (totalPoints/totalStories).toFixed(1) : '0.0';
   const testsPerStory = totalStories>0 ? (totalTC/totalStories).toFixed(1) : '0.0';
@@ -568,9 +568,9 @@ function renderDashboard(){
   setTxt('mExec', metrics.totalExec);
 
   // Only declare these once
-  const passedExecutions = globalData.executions.filter(e => e.execStatus && e.execStatus.toLowerCase().includes('pass')).length;
-  const failedExecutions = globalData.executions.filter(e => e.execStatus && e.execStatus.toLowerCase().includes('fail')).length;
-  const blockedExecutions = globalData.executions.filter(e => e.execStatus && e.execStatus.toLowerCase().includes('block')).length;
+  const passedExecutions = globalData.executions.filter(e => e.tceNum && e.tceNum.trim() && e.execStatus && e.execStatus.toLowerCase().includes('pass')).length;
+  const failedExecutions = globalData.executions.filter(e => e.tceNum && e.tceNum.trim() && e.execStatus && e.execStatus.toLowerCase().includes('fail')).length;
+  const blockedExecutions = globalData.executions.filter(e => e.tceNum && e.tceNum.trim() && e.execStatus && e.execStatus.toLowerCase().includes('block')).length;
 
   setTxt('mPassed', passedExecutions);
   setTxt('mFailed', failedExecutions);
@@ -601,7 +601,7 @@ function renderDashboard(){
   setTxt('testTotal', metrics.totalTC);
   setTxt('execTotal', metrics.totalExec);
   setTxt('execCoverage', metrics.testEfficiency + '%');
-  const unassigned = globalData.executions.filter(e => !e.execAssigned && (e.tceNum || e.tcName)).length;
+  const unassigned = globalData.executions.filter(e => e.tceNum && e.tceNum.trim() && (!e.execAssigned || !e.execAssigned.trim())).length;
   setTxt('execUnassigned', unassigned);
   setTxt('execPassed', passedExecutions);
   setTxt('execFailed', failedExecutions);
@@ -624,7 +624,7 @@ function renderDashboard(){
   // Render execution status chart as donut
   const execStatusDist = {};
   globalData.executions.forEach(e => {
-    if (e.execStatus) {
+    if (e.tceNum && e.tceNum.trim() && e.execStatus) {
       const status = e.execStatus || 'No Status';
       execStatusDist[status] = (execStatusDist[status] || 0) + 1;
     }
@@ -703,7 +703,7 @@ function renderExecStatusByAssigneeMini(containerId){
   // Aggregate by assignee (R) and status (S)
   const byAssignee = {};
   executions.forEach(e => {
-    if (!(e.tceNum || e.tcName || e.execAssigned)) return; // consider only real executions
+    if (!(e.tceNum && e.tceNum.trim())) return; // consider only real executions
     const assignee = (e.execAssigned && e.execAssigned.trim()) || '(unassigned)';
     const status = (e.execStatus || 'No Status').trim();
     if (!byAssignee[assignee]) byAssignee[assignee] = { total:0, Passed:0, Failed:0, InProgress:0, NotStarted:0, NeedHelp:0 };
