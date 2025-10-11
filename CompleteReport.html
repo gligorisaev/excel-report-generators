@@ -500,7 +500,7 @@ function parseData(workbook){
       });
     }
 
-    // --- defects (T..Y) ---
+    // --- defects (U..Y) ---
     const defectName       = String(r[20]||'').trim(); // U
     const defectNum        = String(r[21]||'').trim(); // V
     const defectCreatedBy  = String(r[22]||'').trim(); // W
@@ -519,14 +519,35 @@ function parseData(workbook){
     }
   }
 
-  // Extract summary references from the totals row
+  // FIXED: Extract summary references from the totals row - read actual column values
+  const headerRowData = rows[headerRow] || [];
   const totalRow = rows[lastIdxTotals] || [];
-  const summaryRef = {
-    totalTCRef: Number(totalRow[13]) || 0,       // N: Total Test Cases
-    totalExecRef: Number(totalRow[16]) || 0,     // Q: Total Executions
-    totalDefRef: Number(totalRow[19]) || 0,      // T: Total Defects
-    openDefectsRef: Number(totalRow[25]) || 0    // Z: # Open Defects
-  };
+  
+  // Find columns that start with # in header
+  const summaryRef = {};
+  headerRowData.forEach((header, idx) => {
+    const h = String(header || '').trim();
+    if (h.startsWith('#')) {
+      const value = Number(totalRow[idx]) || 0;
+      console.log(`Found summary column "${h}" at index ${idx}: ${value}`);
+      
+      // Map known columns
+      if (h.includes('Test Case')) summaryRef.totalTCRef = value;
+      else if (h.includes('Execution')) summaryRef.totalExecRef = value;
+      else if (h.includes('Defect') && !h.includes('Open')) summaryRef.totalDefRef = value;
+      else if (h.includes('Open')) summaryRef.openDefectsRef = value;
+    }
+  });
+
+  // Fallback to index-based if headers not found
+  if (!summaryRef.totalTCRef) summaryRef.totalTCRef = Number(totalRow[13]) || 0;
+  if (!summaryRef.totalExecRef) summaryRef.totalExecRef = Number(totalRow[16]) || 0;
+  if (!summaryRef.totalDefRef) summaryRef.totalDefRef = Number(totalRow[19]) || 0;
+  if (!summaryRef.openDefectsRef) summaryRef.openDefectsRef = Number(totalRow[25]) || 0;
+
+  // DEBUG: Log all summary values
+  console.log('Summary references:', summaryRef);
+  console.log('Parsed defects count:', defects.length);
 
   return { stories, testCases, executions, defects, summaryRef };
 }
@@ -560,7 +581,13 @@ function calculateMetrics(data){
   const validExec = getValidExecutions(executions);
   const totalExec = validExec.length;
 
-  const totalDef = defects.filter(d => d.defectNum || d.defectName).length;
+  // FIXED: Use the sum of totalDef from each story (column T)
+  const totalDef = stories.reduce((sum, s) => sum + (s.totalDef || 0), 0);
+
+  // DEBUG: Log the defect counts
+  console.log('Total defects from story rows (column T):', totalDef);
+  console.log('Total defect records parsed:', defects.length);
+  console.log('Reference total defects:', refs.totalDefRef);
 
   const storiesWithTC = new Set();
   testCases.forEach(tc => { if (tc.tcName && tc.storyNumber) storiesWithTC.add(tc.storyNumber); });
@@ -1112,12 +1139,14 @@ function generateComparison() {
     removedDefects: []
   };
 
-  // Metrics diff
+  // Metrics diff - FIXED: current - base (not base - current)
   for (const key of ['totalStories','totalPoints','totalTC','totalExec','totalDef','readyForProd','coverage','completion']) {
+    const baseVal = parseFloat(baseFile.metrics[key]) || 0;
+    const currentVal = parseFloat(currentFile.metrics[key]) || 0;
     comparison.metrics[key] = {
       base: baseFile.metrics[key],
       current: currentFile.metrics[key],
-      diff: (parseFloat(currentFile.metrics[key]) - parseFloat(baseFile.metrics[key]))
+      diff: currentVal - baseVal  // CORRECTED: current minus base
     };
   }
 
