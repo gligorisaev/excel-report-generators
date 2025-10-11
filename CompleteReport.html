@@ -984,6 +984,19 @@ function exportPDF(){
 
 /* ---------- Rendering ---------- */
 function renderDashboard(){
+  // FIXED: Hide main sections if comparing multiple files
+  const isComparing = allFileData.length >= 2;
+  
+  // Hide/show main sections based on comparison mode
+  const sectionsToHide = ['metrics', 'section'];
+  document.querySelectorAll('.metrics, .section:not(#comparisonSection)').forEach(el => {
+    if (isComparing) {
+      el.style.display = 'none';
+    } else {
+      el.style.display = '';
+    }
+  });
+
   // Main cards
   setTxt('mStories', metrics.totalStories);
   setTxt('mPoints', metrics.totalPoints);
@@ -1242,6 +1255,12 @@ function renderComparison() {
   `;
   
   container.innerHTML = html;
+  
+  // FIXED: Show only comparison section title when comparing
+  const comparisonTitle = section.querySelector('.title');
+  if (comparisonTitle) {
+    comparisonTitle.textContent = '📊 Files Comparison Report';
+  }
 }
 </script>
 </body>
