@@ -209,6 +209,8 @@
       <div class="card green"><div class="icon">✅</div><div><div class="h">Passed Executions</div><div id="mPassed" class="v">0</div><div class="small">executions with status passed</div></div></div>
       <div class="card red"><div class="icon">❌</div><div><div class="h">Failed Executions</div><div id="mFailed" class="v">0</div><div class="small">executions with status failed</div></div></div>
       <div class="card orange"><div class="icon">🚫</div><div><div class="h">Blocked Executions</div><div id="mBlocked" class="v">0</div><div class="small">executions with status blocked</div></div></div>
+      <div class="card gray"><div class="icon">⏳</div><div><div class="h">Not Started Executions</div><div id="mNotStarted" class="v">0</div><div class="small">executions with status not started</div></div></div>
+      <div class="card purple"><div class="icon">🔄</div><div><div class="h">In Progress Executions</div><div id="mInProgress" class="v">0</div><div class="small">executions with status in progress</div></div></div>
       <div class="card pink"><div class="icon">📊</div><div><div class="h">Coverage</div><div id="mCov" class="v">0%</div><div class="small">percent of stories with at least one test case</div></div></div>
       <div class="card gray"><div class="icon">🎯</div><div><div class="h">Completion</div><div id="mCompl" class="v">0%</div><div class="small">percent of stories ready for production</div></div></div>
       <div class="card red"><div class="icon">🐛</div><div><div class="h">Defects</div><div id="mDef" class="v">0</div><div class="small">count of defect records</div></div></div>
@@ -1365,12 +1367,16 @@ function renderDashboard(){
   const passed = executions.filter(e=> (e.execStatus||'').toLowerCase().includes('pass')).length;
   const failed = executions.filter(e=> (e.execStatus||'').toLowerCase().includes('fail')).length;
   const blocked = executions.filter(e=> (e.execStatus||'').toLowerCase().includes('block')).length;
+  // NEW: Not Started and In Progress
+  const notStarted = executions.filter(e=> (e.execStatus||'').toLowerCase().includes('not started')).length;
+  const inProgress = executions.filter(e=> (e.execStatus||'').toLowerCase().includes('progress')).length;
+
   setTxt('mPassed', passed);
   setTxt('mFailed', failed);
   setTxt('mBlocked', blocked);
-
-  // Defects from defects report if present
-  setTxt('mDef', (globalData.defects||[]).length);
+  // NEW: set values for the added tiles
+  setTxt('mNotStarted', notStarted);
+  setTxt('mInProgress', inProgress);
 
   setTxt('mCov', metrics.coverage + '%');
   setTxt('mCompl', metrics.completion + '%');
