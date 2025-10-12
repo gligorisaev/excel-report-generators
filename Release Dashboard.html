@@ -205,7 +205,7 @@
       <div class="card blue"><div class="icon">📋</div><div><div class="h">Total Stories</div><div id="mStories" class="v">0</div><div class="small">count of unique user stories</div></div></div>
       <div class="card orange"><div class="icon">⚡</div><div><div class="h">Story Points</div><div id="mPoints" class="v">0</div><div class="small">sum of points across all stories</div></div></div>
       <div class="card teal"><div class="icon">🧪</div><div><div class="h">Test Cases</div><div id="mTC" class="v">0</div><div class="small">number of test cases with names</div></div></div>
-      <div class="card indigo"><div class="icon">🧾</div><div><div class="h">Executions</div><div id="mExec" class="v">0</div><div class="small">number of execution records</div></div></div>
+      <div class="card indigo"><div class="icon">🧾</div><div><div class="h">Test Executions</div><div id="mExec" class="v">0</div><div class="small">number of execution records</div></div></div>
       <div class="card green"><div class="icon">✅</div><div><div class="h">Passed Executions</div><div id="mPassed" class="v">0</div><div class="small">executions with status passed</div></div></div>
       <div class="card red"><div class="icon">❌</div><div><div class="h">Failed Executions</div><div id="mFailed" class="v">0</div><div class="small">executions with status failed</div></div></div>
       <div class="card orange"><div class="icon">🚫</div><div><div class="h">Blocked Executions</div><div id="mBlocked" class="v">0</div><div class="small">executions with status blocked</div></div></div>
@@ -1534,6 +1534,11 @@ async function copyEmailBody(){
     const exportPrevDisplay = exportSection ? exportSection.style.display : undefined;
     if (exportSection) exportSection.style.display = 'none';
 
+    // NEW: Hide "Defects (by Defect Number)" table/chart during capture
+    const defectsTableChart = dashboardNode.querySelector('#defectsByStoryChart')?.closest('.chart') || null;
+    const defectsPrevDisplay = defectsTableChart ? defectsTableChart.style.display : undefined;
+    if (defectsTableChart) defectsTableChart.style.display = 'none';
+
     // Temporarily remove table height restrictions for full capture
     const tables = dashboardNode.querySelectorAll('table, .chart-body');
     const originalStyles = [];
@@ -1569,6 +1574,7 @@ async function copyEmailBody(){
       el.style.height = original.height;
     });
     if (exportSection) exportSection.style.display = exportPrevDisplay;
+    if (defectsTableChart) defectsTableChart.style.display = defectsPrevDisplay;
 
     // Convert canvas to blob
     const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png', 1.0));
@@ -1686,11 +1692,13 @@ async function copyEmailBody(){
   } catch(e) {
     console.error(e);
 
-    // Try to restore hidden export section
+    // Try to restore hidden export section and defects table
     try {
       const exportSection = Array.from(gid('dashboard')?.querySelectorAll('.section') || [])
         .find(sec => /Export Options/i.test(sec.querySelector('.title')?.textContent || ''));
       if (exportSection) exportSection.style.display = '';
+      const defectsTableChart = gid('dashboard')?.querySelector('#defectsByStoryChart')?.closest('.chart');
+      if (defectsTableChart) defectsTableChart.style.display = '';
     } catch(_e){}
 
     // Restore table styles in case of error
