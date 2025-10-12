@@ -145,21 +145,11 @@
   <div class="upload">
     <div class="upload-area" onclick="document.getElementById('fileInput').click()">
       <div style="font-size:2rem">📁</div>
-      <div style="font-weight:700;margin-top:6px">Click to upload Excel file(s)</div>
-      <div class="small">Supports .xlsx and .xls files — Select multiple files to compare</div>
+      <div style="font-weight:700;margin-top:6px">Add Reports for User Stories, Test Cases, Test Executions and Defects</div>
+      <div class="small">Select 1–4 .xls/.xlsx files — the app will auto-detect report types</div>
       <input id="fileInput" type="file" accept=".xlsx,.xls" multiple style="display:none"/>
     </div>
-    
-    <!-- NEW: Defects report upload (only shown when single file is uploaded) -->
-    <div id="defectsUploadArea" style="display:none;margin-top:16px">
-      <div class="upload-area" onclick="document.getElementById('defectsFileInput').click()">
-        <div style="font-size:1.5rem">🐛</div>
-        <div style="font-weight:700;margin-top:6px">Upload Defects Report (report*.xls)</div>
-        <div class="small">Optional: Upload defects report to populate Defects Analysis section</div>
-        <input id="defectsFileInput" type="file" accept=".xls,.xlsx" style="display:none"/>
-      </div>
-    </div>
-    
+
     <div id="processing" class="processing"><span class="spinner"></span>Processing data...</div>
     <div id="error" class="error"></div>
   </div>
@@ -198,14 +188,16 @@
           <div id="storyStatusChart" class="chart-body"></div>
         </div>
         <div class="chart">
-          <div class="chart-explainer">Displays how many stories fall into each impact category (Critical, High, Medium, Low).</div>
-          <div class="h">💥 Stories by Impact</div>
-          <div id="storyImpactChart" class="chart-body"></div>
-        </div>
-        <div class="chart">
           <div class="chart-explainer">Shows the number of stories assigned to each sprint.</div>
           <div class="h">🏃 Stories by Sprint</div>
           <div id="storySprintChart" class="chart-body"></div>
+        </div>
+
+        <!-- NEW: Defect Count by Story (full width) -->
+        <div class="chart" style="grid-column:1 / -1">
+          <div class="chart-explainer">Count of defects grouped by story. Uses defects report when available, otherwise uses story totals.</div>
+          <div class="h">🐞 Defect Count by Story</div>
+          <div id="defectCountByStoryChart" class="chart-body"></div>
         </div>
       </div>
     </div>
@@ -224,6 +216,13 @@
             <div style="margin-bottom:6px">Failed Executions: <span id="execFailed" style="color:var(--red);font-weight:700">0</span></div>
             <div style="margin-bottom:6px">Blocked Executions: <span id="execBlocked" style="color:var(--orange);font-weight:700">0</span></div>
             <div>Avg Executions/Test: <span id="execPerTest" style="color:var(--orange);font-weight:700">0</span></div>
+            <!-- NEW advanced KPIs -->
+            <div style="margin-top:8px;border-top:1px dashed #e5e7eb;padding-top:8px">
+              <div style="margin-bottom:6px">Pass Rate: <span id="execPassRate" style="color:#10b981;font-weight:700">0%</span></div>
+              <div style="margin-bottom:6px">First Pass Yield: <span id="execFPY" style="color:#06b6d4;font-weight:700">0%</span></div>
+              <div style="margin-bottom:6px">Flaky Tests: <span id="execFlaky" style="color:#ef4444;font-weight:700">0</span></div>
+              <div>Rework Rate: <span id="execReworkRate" style="color:#f59e0b;font-weight:700">0%</span></div>
+            </div>
           </div>
         </div>
         <div>
@@ -270,6 +269,8 @@
             <div style="margin-bottom:6px">Critical Defects: <span id="defectCritical" style="color:#b91c1c;font-weight:700">0</span></div>
             <div style="margin-bottom:6px">Open Defects: <span id="defectOpen" style="color:#9a3412;font-weight:700">0</span></div>
             <div>Defects per Story: <span id="defectPerStory" style="color:var(--indigo);font-weight:700">0</span></div>
+            <!-- NEW: Severity index -->
+            <div style="margin-bottom:6px">Severity Index: <span id="defectSevIdx" style="color:#7c3aed;font-weight:700">0</span></div>
             <!-- NEW: extended metrics -->
             <div style="margin-top:10px;border-top:1px dashed #e5e7eb;padding-top:10px">
               <div style="margin-bottom:6px">Closed Defects: <span id="defectClosed" style="color:#1f2937;font-weight:700">0</span></div>
@@ -326,6 +327,12 @@
     <div class="section">
       <div class="title">✅ Data Quality Analysis</div>
       <div id="dqContainer"></div>
+      <!-- NEW: Stories without tests by sprint -->
+      <div class="chart" style="margin-top:12px">
+        <div class="chart-explainer">Stories lacking test cases, grouped by sprint.</div>
+        <div class="h">🚩 Stories Without Tests by Sprint</div>
+        <div id="missingTestsBySprintChart" class="chart-body"></div>
+      </div>
     </div>
 
     <!-- EXPORT ACTIONS -->
@@ -340,437 +347,467 @@
 </div>
 
 <script>
+/* ===== Compact core app script (single copy) ===== */
+
 let globalData = { stories:[], testCases:[], executions:[], defects:[] };
 let metrics = {};
-let allFileData = []; // Store data from all uploaded files
-let fileComparison = null;
-let defectsReportData = null; // NEW: Store defects report data
+let defectsReportData = null;
+let storiesReportData = null;
 
-document.addEventListener('DOMContentLoaded', () => {
-  const fileInput = document.getElementById('fileInput');
-  fileInput.addEventListener('change', e => {
-    if (e.target.files.length) processFiles(Array.from(e.target.files));
-  });
-  
-  // NEW: Defects report file input handler
-  const defectsFileInput = document.getElementById('defectsFileInput');
-  defectsFileInput.addEventListener('change', e => {
-    if (e.target.files.length) processDefectsReport(e.target.files[0]);
-  });
-});
+/* UI helpers */
+function gid(id){ return document.getElementById(id); }
+function setTxt(id, val){ const el=gid(id); if (el) el.textContent = (val ?? '') }
+function showProcessing(){ gid('processing')?.classList.add('show'); gid('error')?.classList.remove('show'); }
+function hideProcessing(){ gid('processing')?.classList.remove('show'); }
+function showError(msg){ const el=gid('error'); if (el){ el.textContent=msg; el.classList.add('show'); } }
+function showDashboard(){ gid('dashboard')?.classList.add('show'); }
 
-function showProcessing(){ document.getElementById('processing').classList.add('show'); document.getElementById('error').classList.remove('show'); }
-function hideProcessing(){ document.getElementById('processing').classList.remove('show'); }
-function showError(msg){ const el=document.getElementById('error'); el.textContent=msg; el.classList.add('show'); }
-function showDashboard(){ document.getElementById('dashboard').classList.add('show'); }
-
-/* ---------- File I/O ---------- */
-async function processFile(file){
-  showProcessing();
-  try{
-    const workbook = await readExcel(file);
-    const data = parseData(workbook);
-
-    // (Optional) de-dupe test cases by storyNumber + tcName
-    const dedupedTC = Array.from(
-      new Map((data.testCases||[]).map(tc => [`${tc.storyNumber}||${tc.tcName}`, tc])).values()
-    );
-    data.testCases = dedupedTC;
-
-    globalData = data;
-    metrics = calculateMetrics(data);
-    renderDashboard();
-    hideProcessing();
-    showDashboard();
-  }catch(err){
-    hideProcessing();
-    showError('Error processing file: ' + err.message);
-  }
-}
-
-async function processFiles(files){
-  showProcessing();
-  allFileData = [];
-  fileComparison = null;
-  defectsReportData = null; // Reset defects report
-
-  try{
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const workbook = await readExcel(file);
-      const data = parseData(workbook);
-
-      // De-dupe test cases
-      const dedupedTC = Array.from(
-        new Map((data.testCases||[]).map(tc => [`${tc.storyNumber}||${tc.tcName}`, tc])).values()
-      );
-      data.testCases = dedupedTC;
-
-      const fileMetrics = calculateMetrics(data);
-
-      allFileData.push({
-        fileName: file.name,
-        data: data,
-        metrics: fileMetrics
-      });
-    }
-
-    // Always use the newest file (last uploaded) as the main report
-    const newestFile = allFileData[allFileData.length - 1];
-    globalData = newestFile.data;
-    metrics = newestFile.metrics;
-
-    // Generate comparison if 2 or more files are uploaded
-    if (allFileData.length >= 2) {
-      fileComparison = generateComparison();
-    } else {
-      // NEW: Show defects upload area if only one file uploaded
-      const defectsUploadArea = document.getElementById('defectsUploadArea');
-      if (defectsUploadArea) defectsUploadArea.style.display = 'block';
-    }
-
-    renderDashboard();
-    if (fileComparison) renderComparison();
-    hideProcessing();
-    showDashboard();
-  }catch(err){
-    hideProcessing();
-    showError('Error processing file(s): ' + err.message);
-  }
-}
-
-function readExcel(file){
-  return new Promise((resolve,reject)=>{
+/* File I/O */
+/* REPLACE previous readWorkbook(mode) with auto-detecting reader */
+function readWorkbook(file){
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = e => {
       try{
-        resolve(XLSX.read(new Uint8Array(e.target.result), {type:'array'}));
+        const buf = e.target.result; // ArrayBuffer
+        // Try binary first (true XLSX)
+        let wb = null;
+        try { wb = XLSX.read(new Uint8Array(buf), { type:'array' }); } catch(_e){}
+        if (wb) {
+          const t = detectReportType(wb);
+          if (t) return resolve(wb);
+        }
+        // Fallback: decode as HTML text with detected charset from meta tag
+        const head = new TextDecoder('utf-8',{fatal:false}).decode(new Uint8Array(buf.slice(0, 4096)));
+        const m = head.match(/charset=([A-Za-z0-9._-]+)/i);
+        let enc = (m ? m[1] : 'utf-8').toLowerCase();
+        if (enc === 'latin1') enc = 'iso-8859-1';
+        // Decode full buffer with detected (or utf-8) encoding
+        let text;
+        try { text = new TextDecoder(enc).decode(new Uint8Array(buf)); }
+        catch(_e){ text = new TextDecoder('utf-8').decode(new Uint8Array(buf)); }
+        const wbText = XLSX.read(text, { type:'string' });
+        resolve(wbText);
       }catch(err){ reject(err); }
     };
     reader.onerror = reject;
     reader.readAsArrayBuffer(file);
   });
 }
-// FIX: ensure global availability (avoids scope issues in some browsers)
-window.readExcel = window.readExcel || readExcel;
 
-/* ---------- Parse (B..Y columns) with carry-forward ---------- */
-function parseData(workbook){
+/* Detect report type by first header row (supports your samples) */
+function detectReportType(workbook){
   const ws = workbook.Sheets[workbook.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
+  if (!rows || !rows.length) return null;
+  const header = (rows[0] || []).map(h => String(h||'').toLowerCase());
 
-  // Find header row
-  let headerRow = -1;
-  for (let i=0;i<rows.length;i++){
-    const row = rows[i]||[];
-    const hasReq = row.some(c => String(c).includes('Story Name')) &&
-                   row.some(c => String(c).includes('Story Number')) &&
-                   row.some(c => String(c).includes('Story Status'));
-    if (hasReq){ headerRow=i; break; }
-  }
-  if (headerRow === -1) throw new Error('Could not find header row');
+  // Defects
+  if (header.some(h=>h.includes('defect number')) && header.some(h=>h.includes('defect name'))) return 'defects';
 
-  // Find last non-empty row (summary totals row)
-  let lastIdxTotals = headerRow + 1;
-  for (let i = rows.length - 1; i > headerRow; i--){
-    const r = rows[i] || [];
-    if (r.some(c => String(c).trim() !== '')) { lastIdxTotals = i; break; }
-  }
+  // Executions (HTML export with Test Case Execution columns)
+  if ((header.some(h=>h.includes('test case execution')) || header.some(h=>h.includes('age (in days)'))) &&
+      header.some(h=>h.includes('assigned to')) && header.some(h=>h.includes('status'))) return 'executions';
 
-  const stories=[]; const testCases=[]; const executions=[]; const defects=[];
-  const seenStories = new Set();
+  // Test Cases (future)
+  if ((header.some(h=>h.includes('test case number')) || header.some(h=>h.includes('test case: test case name'))) &&
+      header.some(h=>h.includes('story: story name'))) return 'testcases';
 
-  // Carry-forward pointers for continuation rows
-  let currentStoryNumber = '';
-  let currentStoryName   = '';
+  // Stories
+  if (header.some(h=>h.includes('story number')) && header.some(h=>h.includes('story: story name'))) return 'stories';
 
-  for (let i=headerRow+1;i<rows.length;i++){
-    const r = rows[i]||[];
-
-    // Skip the summary totals row from normal parsing
-    if (i === lastIdxTotals) { continue; }
-
-    const rowStoryName   = String(r[1]||'').trim();  // B
-    const rowStoryNumber = String(r[2]||'').trim();  // C
-
-    // If we have a new story number on this row, update carry-forward
-    if (rowStoryNumber){
-      currentStoryNumber = rowStoryNumber;
-      currentStoryName   = rowStoryName;
-    }
-
-    // Skip orphan rows that appear before any story was established
-    if (!currentStoryNumber) continue;
-
-    // Add the story exactly once when we encounter its header row
-    if (rowStoryNumber && !seenStories.has(rowStoryNumber)){
-      seenStories.add(rowStoryNumber);
-      stories.push({
-        storyNumber: currentStoryNumber,
-        storyName  : currentStoryName,
-        storyStatus:String(r[3]||'').trim(),     // D
-        createdBy  :String(r[5]||'').trim(),     // F
-        assignee   :String(r[6]||'').trim(),     // G
-        owner      :String(r[7]||'').trim(),     // H
-        impact     :String(r[8]||'').trim(),     // I
-        points     :Number(r[9])||0,             // J
-        devBy      :String(r[10]||'').trim(),    // K
-        lastModBy  :String(r[11]||'').trim(),    // L
-        sprint     :String(r[12]||'').trim(),    // M
-        totalTC    :Number(r[13])||0,            // N
-        totalExec  :Number(r[16])||0,            // Q
-        totalDef   :Number(r[19])||0             // T
-      });
-    }
-
-    // Children (always bound to currentStoryNumber/Name)
-    const tcName       = String(r[14]||'').trim();    // O
-    const tceNum       = String(r[15]||'').trim();    // P
-    const execAssigned = String(r[17]||'').trim();    // R
-    const execStatus   = String(r[18]||'').trim();    // S
-
-    if (tcName){
-      testCases.push({ storyNumber: currentStoryNumber, storyName: currentStoryName, tcName });
-    }
-    if (tceNum && tceNum.trim()) {
-      executions.push({ 
-        storyNumber: currentStoryNumber, 
-        storyName: currentStoryName, 
-        tcName, 
-        tceNum, 
-        execAssigned,
-        execStatus
-      });
-    }
-
-    // --- defects (U..Y) ---
-    const defectName       = String(r[20]||'').trim(); // U
-    const defectNum        = String(r[21]||'').trim(); // V
-    const defectCreatedBy  = String(r[22]||'').trim(); // W
-    const defectStatus     = String(r[23]||'').trim(); // X
-    const defectAssignedTo = String(r[24]||'').trim(); // Y
-
-    if (defectNum || defectName){
-      defects.push({
-        storyNumber: currentStoryNumber,
-        storyName  : currentStoryName,
-        tcName, tceNum,
-        defectNum, defectName,
-        defectStatus, defectCreatedBy,
-        defectAssignedTo
-      });
-    }
-  }
-
-  // FIXED: Extract summary references from the totals row - read actual column values
-  const headerRowData = rows[headerRow] || [];
-  const totalRow = rows[lastIdxTotals] || [];
-  
-  // Find columns that start with # in header
-  const summaryRef = {};
-  headerRowData.forEach((header, idx) => {
-    const h = String(header || '').trim();
-    if (h.startsWith('#')) {
-      const value = Number(totalRow[idx]) || 0;
-      console.log(`Found summary column "${h}" at index ${idx}: ${value}`);
-      
-      // Map known columns
-      if (h.includes('Test Case')) summaryRef.totalTCRef = value;
-      else if (h.includes('Execution')) summaryRef.totalExecRef = value;
-      else if (h.includes('Defect') && !h.includes('Open')) summaryRef.totalDefRef = value;
-      else if (h.includes('Open')) summaryRef.openDefectsRef = value;
-    }
-  });
-
-  // Fallback to index-based if headers not found
-  if (!summaryRef.totalTCRef) summaryRef.totalTCRef = Number(totalRow[13]) || 0;
-  if (!summaryRef.totalExecRef) summaryRef.totalExecRef = Number(totalRow[16]) || 0;
-  if (!summaryRef.totalDefRef) summaryRef.totalDefRef = Number(totalRow[19]) || 0;
-  if (!summaryRef.openDefectsRef) summaryRef.openDefectsRef = Number(totalRow[25]) || 0;
-
-  // DEBUG: Log all summary values
-  console.log('Summary references:', summaryRef);
-  console.log('Parsed defects count:', defects.length);
-
-  return { stories, testCases, executions, defects, summaryRef };
+  return null;
 }
 
-/* Small DOM helpers */
-function gid(id){ return document.getElementById(id); }
-function setTxt(id, val){ const el=gid(id); if (el) el.textContent = (val ?? '') }
-
-/* NEW: centralized helper for valid, de-duplicated executions */
-function getValidExecutions(executions){
-  const key = e => `${e.storyNumber}||${e.tcName}||${e.tceNum}`;
-  const map = new Map();
-  (executions||[]).forEach(e => {
-    if (e && e.tceNum && String(e.tceNum).trim()) {
-      const k = key(e);
-      if (!map.has(k)) map.set(k, e);
-    }
-  });
-  return Array.from(map.values());
-}
-
-/* ---------- Defects Report Processing ---------- */
-async function processDefectsReport(file){
-  showProcessing();
-  try{
-    const workbook = await readExcel(file);
-    const defectsData = parseDefectsReport(workbook);
-    
-    defectsReportData = defectsData;
-    
-    // Merge defects data into globalData
-    globalData.defects = defectsData;
-    
-    // Recalculate metrics with new defects data
-    metrics = calculateMetrics(globalData);
-    
-    // Re-render dashboard
-    renderDashboard();
-    hideProcessing();
-    
-    // Show success message
-    const defectsUploadArea = document.getElementById('defectsUploadArea');
-    if (defectsUploadArea) {
-      defectsUploadArea.innerHTML = `
-        <div class="success" style="padding:12px;border-radius:8px">
-          ✅ Defects report loaded successfully! ${defectsData.length} defects imported.
-        </div>
-      `;
-    }
-  }catch(err){
-    hideProcessing();
-    showError('Error processing defects report: ' + err.message);
-  }
-}
-
-// Date helper: parse dd.mm.yyyy to Date
+/* Date helper: dd.mm.yyyy [hh:mm] */
 function parseDMY(d){
   if (!d) return null;
   const s = String(d).trim();
-  const m = s.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  const m = s.match(/^(\d{2})\.(\d{2})\.(\d{4})(?:\s+\d{2}:\d{2})?$/);
   if (!m) return null;
   const [_, dd, mm, yyyy] = m;
   const dt = new Date(Number(yyyy), Number(mm)-1, Number(dd));
   return isNaN(dt.getTime()) ? null : dt;
 }
 
-// NEW: Parse defects report (report*.xls format)
+/* NEW: strip simple HTML from cells (anchor tags in .xls HTML exports) */
+function stripHtml(s){
+  return String(s ?? '').replace(/<[^>]*>/g,'').trim();
+}
+
+/* Parse Stories (matches your sample: Sprint, Story Number, Story: Story Name, etc.) */
+function parseStoriesReport(workbook){
+  const ws = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
+  let headerRow = -1;
+  for (let i=0;i<rows.length;i++){
+    const r = rows[i]||[];
+    if (r.some(c => String(c).toLowerCase().includes('story: story name'))) { headerRow=i; break; }
+  }
+  if (headerRow === -1) throw new Error('Could not find stories report header row');
+  const hdr = rows[headerRow] || [];
+  const col = {};
+  hdr.forEach((h, idx) => {
+    const t = String(h||'').trim().toLowerCase();
+    if (t.includes('release')) col.release = idx;
+    if (t === 'sprint' || t.includes('sprint')) col.sprint = idx;
+    if (t.includes('story number')) col.storyNum = idx;
+    if (t.includes('story: story name')) col.storyName = idx;
+    if (t.includes('story status')) col.status = idx;
+    if (t.includes('story owner')) col.owner = idx;
+    if (t === 'assignee' || t.includes('assignee')) col.assignee = idx;
+    if (t.includes('story: created by')) col.createdBy = idx;
+    if (t.includes('story: created date')) col.createdDate = idx;
+    if (t.includes('last modified date')) col.lastModDate = idx;
+    if (t.includes('# total test cases')) col.totalTC = idx;
+    if (t.includes('#test cases executed')) col.totalExec = idx;
+    if (t.includes('#total defects')) col.totalDef = idx;
+  });
+  const out = [];
+  for (let i = headerRow + 1; i < rows.length; i++){
+    const r = rows[i] || [];
+    const rawStoryName = String(r[col.storyName] || '').trim();
+    if (!rawStoryName) continue;
+    const m = rawStoryName.match(/Stab\.\d+/i);
+    const stabId = m ? m[0] : '';
+    const storyNumber = stabId || String(r[col.storyNum]||'').trim() || rawStoryName;
+    out.push({
+      storyNumber,
+      storyKey: String(r[col.storyNum]||'').trim(),
+      storyName: rawStoryName,
+      storyStatus: String(r[col.status] || '').trim(),
+      owner: String(r[col.owner] || '').trim(),
+      assignee: String(r[col.assignee] || '').trim(),
+      createdBy: String(r[col.createdBy] || '').trim(),
+      sprint: String(r[col.sprint] || '').trim(),
+      createdDate: String(r[col.createdDate] || '').trim(),
+      lastModDate: String(r[col.lastModDate] || '').trim(),
+      totalTC: Number(r[col.totalTC] || 0),
+      totalExec: Number(r[col.totalExec] || 0),
+      totalDef: Number(r[col.totalDef] || 0),
+      releaseName: String(r[col.release] || '').trim()
+    });
+  }
+  return out;
+}
+
+/* Parse Defects (matches your sample, with anchor Story column and Severity/Complexity) */
 function parseDefectsReport(workbook){
   const ws = workbook.Sheets[workbook.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
-  
-  // Find header row (contains "Defect Number", "Defect Name", "Status", etc.)
+
   let headerRow = -1;
   for (let i=0;i<rows.length;i++){
-    const row = rows[i]||[];
-    const hasDefectColumns = row.some(c => String(c).includes('Defect Number')) &&
-                              row.some(c => String(c).includes('Defect Name')) &&
-                              row.some(c => String(c).includes('Status'));
-    if (hasDefectColumns){ headerRow=i; break; }
+    const r = rows[i]||[];
+    const ok = r.some(c => String(c).includes('Defect Number')) &&
+               r.some(c => String(c).includes('Defect Name')) &&
+               r.some(c => String(c).toLowerCase().includes('status'));
+    if (ok){ headerRow=i; break; }
   }
-  
   if (headerRow === -1) throw new Error('Could not find defects report header row');
-  
-  const headerRowData = rows[headerRow] || [];
-  
-  // Map column indices
-  const colMap = {};
-  headerRowData.forEach((header, idx) => {
-    const h = String(header || '').trim();
-    if (h.includes('Release')) colMap.release = idx;
-    if (h.includes('Sprint')) colMap.sprint = idx;
-    if (h.includes('Story') && !h.includes('User')) colMap.story = idx;
-    if (h.includes('Test Case')) colMap.testCase = idx;
-    if (h.includes('Defect Number')) colMap.defectNumber = idx;
-    if (h.includes('Defect Name')) colMap.defectName = idx;
-    if (h === 'Status' || /status/i.test(h)) colMap.status = idx;
-    if (/severity/i.test(h)) colMap.severity = idx;
-    if (/complexity/i.test(h)) colMap.complexity = idx;
-    if (/Days Since Last Update/i.test(h)) colMap.daysSinceUpdate = idx;
-    if (/Type/i.test(h)) colMap.type = idx;
-    if (h.includes('Created Date')) colMap.createdDate = idx;
-    if (h.includes('Closed Date')) colMap.closedDate = idx;
-    if (h.includes('Created By')) colMap.createdBy = idx;
-    if (h.includes('Assigned To')) colMap.assignedTo = idx;
-    // support Story Impact column directly from defects report
-    if (/story impact/i.test(h) || h.trim().toLowerCase() === 'impact') colMap.impact = idx;
+
+  const hdr = rows[headerRow] || [];
+  const col = {};
+  hdr.forEach((h, idx) => {
+    const t = String(h||'').trim();
+    const tl = t.toLowerCase();
+    if (tl.includes('release')) col.release = idx;
+    if (tl.includes('sprint')) col.sprint = idx;
+    if (t === 'Story' || tl.includes('story')) col.story = idx;
+    if (tl.includes('test case')) col.testCase = idx;
+    if (t.includes('Defect Number')) col.defectNumber = idx;
+    if (t.includes('Defect Name')) col.defectName = idx;
+    if (t === 'Status' || /status/i.test(t)) col.status = idx;
+    if (/severity/i.test(t)) col.severity = idx;
+    if (/complexity/i.test(t)) col.complexity = idx; // "Defect complexity"
+    if (/Days Since Last Update/i.test(t)) col.daysSinceUpdate = idx;
+    if (/Type/i.test(t)) col.type = idx;
+    if (t.includes('Created Date')) col.createdDate = idx;
+    if (t.includes('Closed Date')) col.closedDate = idx;
+    if (t.includes('Created By')) col.createdBy = idx;
+    if (t.includes('Assigned To')) col.assignedTo = idx;
+    if (/story impact/i.test(t) || tl === 'impact') col.impact = idx;
   });
-  
-  console.log('Defects report column mapping:', colMap);
-  
-  const defects = [];
-  
+
+  const out = [];
   for (let i = headerRow + 1; i < rows.length; i++){
     const r = rows[i] || [];
-    
-    const defectNum = String(r[colMap.defectNumber] || '').trim();
-    const defectName = String(r[colMap.defectName] || '').trim();
-    
+    const defectNum = String(r[col.defectNumber] || '').trim();
+    const defectName = String(r[col.defectName] || '').trim();
     if (!defectNum && !defectName) continue;
-    
-    // Extract story info from story column (remove HTML tags)
-    const storyText = String(r[colMap.story] || '').replace(/<[^>]*>/g, '').trim();
-    
-    // Try to extract story number from story text (format: "Stab.XXX ...")
-    let storyNumber = '';
-    const storyMatch = storyText.match(/Stab\.(\d+)/);
-    if (storyMatch) {
-      storyNumber = 'Stab.' + storyMatch[1];
-    }
-    
-    defects.push({
-      storyNumber: storyNumber,
+
+    const storyText = String(r[col.story] || '').replace(/<[^>]*>/g, '').trim();
+    const m = storyText.match(/Stab\.(\d+)/);
+    const storyNumber = m ? 'Stab.' + m[1] : '';
+
+    out.push({
+      storyNumber,
       storyName: storyText,
-      tcName: String(r[colMap.testCase] || '').trim(),
+      tcName: String(r[col.testCase] || '').trim(),
       tceNum: '',
-      defectNum: defectNum,
-      defectName: defectName,
-      defectStatus: String(r[colMap.status] || '').trim(),
-      defectCreatedBy: String(r[colMap.createdBy] || '').trim(),
-      defectAssignedTo: String(r[colMap.assignedTo] || '').trim(),
-      createdDate: String(r[colMap.createdDate] || '').trim(),
-      closedDate: String(r[colMap.closedDate] || '').trim(),
-      sprint: String(r[colMap.sprint] || '').trim(),
-      // NEW fields from report
-      releaseName: String(r[colMap.release] || '').trim(),
-      severity: String(r[colMap.severity] || '').trim(),
-      complexity: String(r[colMap.complexity] || '').trim(),
-      type: String(r[colMap.type] || '').trim(),
-      daysSinceUpdate: Number(r[colMap.daysSinceUpdate] || 0),
-      storyImpact: String((colMap.impact !== undefined ? r[colMap.impact] : '') || '').trim()
+      defectNum,
+      defectName,
+      defectStatus: String(r[col.status] || '').trim(),
+      defectCreatedBy: String(r[col.createdBy] || '').trim(),
+      defectAssignedTo: String(r[col.assignedTo] || '').trim(),
+      createdDate: String(r[col.createdDate] || '').trim(),
+      closedDate: String(r[col.closedDate] || '').trim(),
+      sprint: String(r[col.sprint] || '').trim(),
+      releaseName: String(r[col.release] || '').trim(),
+      severity: String(r[col.severity] || '').trim(),
+      complexity: String(r[col.complexity] || '').trim(),
+      type: String(r[col.type] || '').trim(),
+      daysSinceUpdate: Number(r[col.daysSinceUpdate] || 0),
+      storyImpact: String((col.impact !== undefined ? r[col.impact] : '') || '').trim()
     });
   }
-  
-  console.log('Parsed defects from report:', defects.length);
-  
-  return defects;
+  return out;
 }
 
-/* ---------- Metrics ---------- */
+/* NEW: Parse Test Cases report
+   Columns: Release Name, Sprint, Story: Story Name, Test Case Number, Test Case: Test Case Name,
+            Test Case: Created By, Test Case: Created Date, # Open Defects */
+function parseTestCasesReport(workbook){
+  const ws = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
+  let headerRow = -1;
+  for (let i=0;i<rows.length;i++){
+    const r = rows[i]||[];
+    const has = r.some(c=>String(c).toLowerCase().includes('test case number')) ||
+                r.some(c=>String(c).toLowerCase().includes('test case: test case name'));
+    if (has){ headerRow=i; break; }
+  }
+  if (headerRow === -1) throw new Error('Could not find test cases report header row');
+
+  const hdr = rows[headerRow] || [];
+  const col = {};
+  hdr.forEach((h, idx) => {
+    const t = String(h||'').trim().toLowerCase();
+    if (t.includes('release name')) col.release = idx;
+    if (t === 'sprint' || t.includes('sprint')) col.sprint = idx;
+    if (t.includes('story: story name')) col.storyName = idx;
+    if (t.includes('test case number')) col.tcNumber = idx;
+    if (t.includes('test case: test case name')) col.tcName = idx;
+    if (t.includes('test case: created by')) col.createdBy = idx;
+    if (t.includes('test case: created date')) col.createdDate = idx;
+    if (t.includes('# open defects')) col.openDefects = idx;
+  });
+
+  const out = [];
+  for (let i = headerRow + 1; i < rows.length; i++){
+    const r = rows[i] || [];
+    const storyText = stripHtml(r[col.storyName] || '');
+    if (!storyText) continue;
+    const m = storyText.match(/Stab\.\d+/i);
+    const storyNumber = m ? m[0] : storyText;
+    const tcName = String(r[col.tcName] || r[col.tcNumber] || '').trim();
+    if (!tcName) continue;
+    out.push({
+      storyNumber,
+      storyName: storyText,
+      tcName,
+      tcNumber: String(r[col.tcNumber] || '').trim(),
+      releaseName: String(r[col.release] || '').trim(),
+      sprint: String(r[col.sprint] || '').trim(),
+      tcCreatedBy: String(r[col.createdBy] || '').trim(),
+      tcCreatedDate: String(r[col.createdDate] || '').trim(),
+      openDefects: Number(r[col.openDefects] || 0)
+    });
+  }
+  return out;
+}
+
+/* NEW: Parse Test Case Executions report
+   Columns: Release Name, Sprint Name, Story Name, Test Case, Test Case Execution: Created By,
+            Assigned To, Edit Date, Test Case Execution: Last Modified By, Age (In Days),
+            Target Completion Date, Status */
+function parseExecutionsReport(workbook){
+  const ws = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
+  let headerRow = -1;
+  for (let i=0;i<rows.length;i++){
+    const r = rows[i]||[];
+    const has = (r.some(c => String(c).toLowerCase().includes('test case execution')) ||
+                 r.some(c => String(c).toLowerCase().includes('age (in days)'))) &&
+                r.some(c => String(c).toLowerCase().includes('status'));
+    if (has){ headerRow=i; break; }
+  }
+  if (headerRow === -1) throw new Error('Could not find test executions report header row');
+
+  const hdr = rows[headerRow] || [];
+  const col = {};
+  hdr.forEach((h, idx) => {
+    const t = String(h||'').trim().toLowerCase();
+    if (t.includes('release name')) col.release = idx;
+    if (t.includes('sprint name') || t === 'sprint') col.sprint = idx;
+    if (t.includes('story name') || t === 'story') col.storyName = idx;
+    // tightened mapping: only pick "Test Case" header, not "Test Case Execution: ..."
+    if ((t === 'test case' || t === 'test case name') && !t.includes('execution')) col.tcName = idx;
+    if (t.includes('assigned to')) col.assignedTo = idx;
+    if (t.includes('edit date')) col.editDate = idx;
+    if (t.includes('status')) col.status = idx;
+    if (t.includes('age (in days)')) col.ageDays = idx;
+    if (t.includes('test case execution: last modified by')) col.lastModBy = idx;
+    if (t.includes('test case execution: created by')) col.createdBy = idx;
+    if (t.includes('target completion date')) col.targetDate = idx;
+  });
+
+  const out = [];
+  for (let i = headerRow + 1; i < rows.length; i++){
+    const r = rows[i] || [];
+    const storyText = stripHtml(r[col.storyName] || '');
+    if (!storyText) continue;
+    const m = storyText.match(/Stab\.\d+/i);
+    const storyNumber = m ? m[0] : storyText;
+    const tcName = String(r[col.tcName] || '').trim();
+    if (!tcName) continue;
+    out.push({
+      storyNumber,
+      storyName: storyText,
+      tcName,
+      tceNum: '', // not present in report
+      execAssigned: String(r[col.assignedTo] || '').trim(),
+      execStatus: String(r[col.status] || '').trim(),
+      editDate: String(r[col.editDate] || '').trim(),
+      ageDays: Number(r[col.ageDays] || 0),
+      lastModBy: String(r[col.lastModBy] || '').trim(),
+      execCreatedBy: String(r[col.createdBy] || '').trim(),
+      targetDate: String(r[col.targetDate] || '').trim(),
+      sprint: String(r[col.sprint] || '').trim(),
+      releaseName: String(r[col.release] || '').trim()
+    });
+  }
+  return out;
+}
+
+/* Normalize and de-duplicate executions */
+function getValidExecutions(executions){
+  const key = e => {
+    if (e.tceNum && String(e.tceNum).trim()) return `TCE||${e.storyNumber}||${e.tcName}||${e.tceNum}`;
+    return `ROW||${e.storyNumber}||${e.tcName}||${e.execAssigned||''}||${e.execStatus||''}||${e.editDate||''}`;
+  };
+  const map = new Map();
+  (executions||[]).forEach(e => {
+    if (!e) return;
+    if (!e.tcName && !e.tceNum) return;
+    const k = key(e); if (!map.has(k)) map.set(k, e);
+  });
+  return Array.from(map.values());
+}
+
+/* Unified processing of multiple report files */
+async function processReportFiles(files){
+  showProcessing();
+  try{
+    globalData = { stories:[], testCases:[], executions:[], defects:[] };
+    defectsReportData = null;
+    storiesReportData = null;
+
+    for (const file of files) {
+      // CHANGED: single auto reader + detect type
+      const wb = await readWorkbook(file);
+      const type = detectReportType(wb);
+      if (!type) { console.warn('Unknown report type:', file.name); continue; }
+
+      if (type === 'stories') {
+        const stories = parseStoriesReport(wb);
+        storiesReportData = stories;
+        const byNum = new Map(globalData.stories.map(s => [s.storyNumber, s]));
+        stories.forEach(sr => {
+          const ex = byNum.get(sr.storyNumber);
+          if (ex) {
+            Object.assign(ex, {
+              storyName: sr.storyName || ex.storyName,
+              storyStatus: sr.storyStatus || ex.storyStatus,
+              owner: sr.owner || ex.owner,
+              assignee: sr.assignee || ex.assignee,
+              sprint: sr.sprint || ex.sprint,
+              totalTC: typeof sr.totalTC==='number' ? sr.totalTC : ex.totalTC,
+              totalExec: typeof sr.totalExec==='number' ? sr.totalExec : ex.totalExec,
+              totalDef: typeof sr.totalDef==='number' ? sr.totalDef : ex.totalDef,
+              createdBy: sr.createdBy || ex.createdBy,
+              releaseName: sr.releaseName || ex.releaseName
+            });
+          } else {
+            byNum.set(sr.storyNumber, {
+              storyNumber: sr.storyNumber,
+              storyName: sr.storyName,
+              storyStatus: sr.storyStatus,
+              createdBy: sr.createdBy,
+              assignee: sr.assignee,
+              owner: sr.owner,
+              impact: 'Unknown',
+              points: 0,
+              devBy: '',
+              lastModBy: '',
+              sprint: sr.sprint,
+              totalTC: sr.totalTC,
+              totalExec: sr.totalExec,
+              totalDef: sr.totalDef,
+              releaseName: sr.releaseName
+            });
+          }
+        });
+        globalData.stories = Array.from(byNum.values());
+      } else if (type === 'defects') {
+        const defects = parseDefectsReport(wb);
+        globalData.defects = globalData.defects.concat(defects);
+        defectsReportData = globalData.defects;
+      } else if (type === 'testcases') {
+        const tcs = parseTestCasesReport(wb);
+        globalData.testCases = globalData.testCases.concat(tcs);
+      } else if (type === 'executions') {
+        const execs = parseExecutionsReport(wb);
+        globalData.executions = globalData.executions.concat(execs);
+      }
+    }
+
+    // De-dupe
+    if (globalData.testCases.length){
+      const mapTC = new Map();
+      globalData.testCases.forEach(tc => {
+        const k = `${tc.storyNumber}||${tc.tcName}`;
+        if (!mapTC.has(k)) mapTC.set(k, tc);
+      });
+      globalData.testCases = Array.from(mapTC.values());
+    }
+    if (globalData.executions.length){
+      globalData.executions = getValidExecutions(globalData.executions);
+    }
+
+    metrics = calculateMetrics(globalData);
+    renderDashboard();
+    hideProcessing();
+    showDashboard();
+  }catch(err){
+    console.error(err);
+    hideProcessing();
+    showError('Error processing reports: ' + err.message);
+  }
+}
+
+/* Metrics (update totalDef to use defects length when present) */
 function calculateMetrics(data){
   const { stories, testCases, executions, defects } = data;
-  const refs = data.summaryRef || {};
   const totalStories = stories.length;
   const totalPoints = stories.reduce((s,x)=>s+(x.points||0),0);
+  const totalTC = (testCases||[]).filter(tc => tc.tcName && tc.tcName.trim()).length;
 
-  const totalTC = testCases.filter(tc => tc.tcName && tc.tcName.trim()).length;
-
-  const validExec = getValidExecutions(executions);
+  const validExec = getValidExecutions(executions||[]);
   const totalExec = validExec.length;
 
-  // FIXED: Use the sum of totalDef from each story (column T)
-  const totalDef = stories.reduce((sum, s) => sum + (s.totalDef || 0), 0);
-
-  // DEBUG: Log the defect counts
-  console.log('Total defects from story rows (column T):', totalDef);
-  console.log('Total defect records parsed:', defects.length);
-  console.log('Reference total defects:', refs.totalDefRef);
+  // CHANGED: prefer defects records count; fallback to story totals when no defects report
+  const storyDefSum = stories.reduce((sum, s) => sum + (s.totalDef || 0), 0);
+  const defectRecordCount = (defects||[]).length;
+  const totalDef = defectRecordCount > 0 ? defectRecordCount : storyDefSum;
 
   const storiesWithTC = new Set();
-  testCases.forEach(tc => { if (tc.tcName && tc.storyNumber) storiesWithTC.add(tc.storyNumber); });
+  // If TC report missing, use story.totalTC > 0 as coverage signal
+  if (totalTC > 0) {
+    (testCases||[]).forEach(tc => { if (tc.tcName && tc.storyNumber) storiesWithTC.add(tc.storyNumber); });
+  } else {
+    stories.forEach(s => { if ((s.totalTC||0) > 0) storiesWithTC.add(s.storyNumber); });
+  }
 
   const statusDist = {}, impactDist={}, sprintDist={}, assigneeDist={}, pointsByStatus={};
   for (const s of stories){
@@ -781,36 +818,14 @@ function calculateMetrics(data){
     if (s.storyStatus) pointsByStatus[s.storyStatus]=(pointsByStatus[s.storyStatus]||0)+(s.points||0);
   }
   const readyForProd = statusDist['Ready for Production Deployment']||0;
-  const inProgress = statusDist['Development In Progress']||0;
-
-  const execAssigneeDist = {};
-  for (const e of validExec){
-    const who = (e.execAssigned && e.execAssigned.trim()) || '(unassigned)';
-    execAssigneeDist[who]=(execAssigneeDist[who]||0)+1;
-  }
 
   const coverage = totalStories ? ((storiesWithTC.size/totalStories)*100).toFixed(1) : '0.0';
   const completion = totalStories ? ((readyForProd/totalStories)*100).toFixed(1) : '0.0';
   const defectDensity = totalPoints>0 ? (totalDef/totalPoints).toFixed(2) : '0.00';
-  const executedTests = validExec.length;
-  const testEfficiency = totalTC>0 ? ((executedTests/totalTC)*100).toFixed(1) : '0.0';
-  const avgPointsPerStory = totalStories>0 ? (totalPoints/totalStories).toFixed(1) : '0.0';
-  const testsPerStory = totalStories>0 ? (totalTC/totalStories).toFixed(1) : '0.0';
 
-  // NEW: calculated open defects
-  const openDefects = (defects||[]).filter(d => {
-    const st = (d.defectStatus||'').toLowerCase();
-    return st && !(st.includes('closed') || st.includes('resolve') || st.includes('reject'));
-  }).length;
-
-  // NEW: extended defects metrics (when report data available)
-  const severityDist = {};
-  const complexityDist = {};
-  const typeDist = {};
-  const statusDistFull = {};
-  let closedDefectsCount = 0;
-  let mttrSum = 0, mttrN = 0;
-  let openAgeSum = 0, openN = 0;
+  // Defects extras (safe if no defects report)
+  const severityDist = {}, complexityDist = {}, typeDist = {};
+  let closedDefectsCount = 0, mttrSum = 0, mttrN = 0, openAgeSum = 0, openN = 0;
   const agingBuckets = { '0-3 days':0, '4-7 days':0, '8-14 days':0, '15+ days':0 };
   const today = new Date();
 
@@ -822,30 +837,21 @@ function calculateMetrics(data){
     severityDist[sev] = (severityDist[sev]||0)+1;
     complexityDist[cpl] = (complexityDist[cpl]||0)+1;
     typeDist[typ] = (typeDist[typ]||0)+1;
-    statusDistFull[st] = (statusDistFull[st]||0)+1;
 
     const stLower = st.toLowerCase();
     const isClosedLike = stLower.includes('closed') || stLower.includes('resolve') || stLower.includes('reject');
-
-    // MTTR (days between created and closed) for closed-like defects
     if (isClosedLike) {
       closedDefectsCount++;
       const cd = parseDMY(d.createdDate);
       const ld = parseDMY(d.closedDate);
-      if (cd && ld) {
-        const days = Math.max(0, (ld - cd) / (1000*60*60*24));
-        mttrSum += days;
-        mttrN++;
-      }
+      if (cd && ld) { mttrSum += Math.max(0,(ld-cd)/(1000*60*60*24)); mttrN++; }
     } else {
-      // Open defects aging using daysSinceUpdate if present else days since created
       let age = Number(d.daysSinceUpdate);
       if (!(age > 0)) {
         const cd = parseDMY(d.createdDate);
-        age = cd ? Math.max(0, (today - cd)/(1000*60*60*24)) : 0;
+        age = cd ? Math.max(0,(today-cd)/(1000*60*60*24)) : 0;
       }
       openAgeSum += age; openN++;
-
       if (age <= 3) agingBuckets['0-3 days']++;
       else if (age <= 7) agingBuckets['4-7 days']++;
       else if (age <= 14) agingBuckets['8-14 days']++;
@@ -853,665 +859,510 @@ function calculateMetrics(data){
     }
   });
 
-  const mttrDays = mttrN ? (mttrSum/mttrN) : 0;
-  const openAvgSinceUpdate = openN ? (openAgeSum/openN) : 0;
-  const defectRecordCount = (defects||[]).length;
+  // Build execution-based metrics
+  const statusDistExec = {};
+  const byTC = new Map(); // key: story||tcName -> {count, statuses:Set, earliestStatus}
+  const execAgingBuckets = { '0-3 days':0, '4-7 days':0, '8-14 days':0, '15+ days':0 };
 
-  return {
-    totalStories, totalPoints, totalTC, totalExec, totalDef,
-    readyForProd, inProgress,
-    coverage, completion, defectDensity, testEfficiency, avgPointsPerStory, testsPerStory,
-    statusDist, impactDist, sprintDist, assigneeDist, pointsByStatus, execAssigneeDist,
-    openDefects,
-    // NEW
-    severityDist, complexityDist, typeDist,
-    mttrDays, openAvgSinceUpdate, openAgingBuckets: agingBuckets,
-    closedDefectsCount, defectRecordCount,
-    refs
-  };
-}
+  validExec.forEach(e=>{
+    const stRaw = String(e.execStatus||'No Status').trim();
+    const st = stRaw || 'No Status';
+    statusDistExec[st] = (statusDistExec[st]||0)+1;
 
-/* util: basic HTML escape for table cells */
-function escapeHtml(str){
-  return String(str ?? '')
-    .replace(/&/g,'&amp;')
-    .replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;')
-    .replace(/'/g,'&#39;');
-}
+    const k = `${e.storyNumber||e.storyName||''}||${e.tcName||''}`;
+    let rec = byTC.get(k);
+    if (!rec){ rec = { count:0, statuses:new Set(), earliestStatus:null, earliestDate:null }; byTC.set(k, rec); }
+    rec.count++;
+    rec.statuses.add(st.toLowerCase());
 
-/* Get default color for index */
-function getDefaultColor(idx) {
-  const palette = [
-    '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444',
-    '#06b6d4', '#ec4899', '#14b8a6', '#f97316', '#6366f1'
-  ];
-  return palette[idx % palette.length];
-}
+    // earliest exec status by date
+    const dt = parseDMY(e.editDate) || null;
+    if (!rec.earliestDate || (dt && dt < rec.earliestDate)){
+      rec.earliestDate = dt || rec.earliestDate;
+      rec.earliestStatus = st.toLowerCase();
+    }
 
-/* Render donut chart - legend-based version */
-function renderDonutChart(containerId, data, colors) {
-  const container = gid(containerId);
-  if (!container) return;
-  
-  const entries = Object.entries(data || {});
-  if (!entries.length) {
-    container.innerHTML = '<div class="small" style="text-align:center;padding:20px">No data</div>';
-    return;
-  }
-
-  entries.sort((a, b) => b[1] - a[1]);
-  const total = entries.reduce((sum, [, val]) => sum + val, 0);
-  
-  let html = '<div style="padding:12px">';
-
-  entries.forEach(([key, val], idx) => {
-    const pct = total > 0 ? ((val / total) * 100).toFixed(1) : 0;
-    const color = (colors && colors[key]) || getDefaultColor(idx);
-    const label = key.length > 40 ? key.slice(0, 40) + '…' : key;
-    
-    html += `
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px">
-        <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">
-          <div style="width:16px;height:16px;background:${color};border-radius:3px;flex-shrink:0"></div>
-          <span style="font-weight:600;color:#374151;word-break:break-word" title="${key}">${label}</span>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
-          <span style="font-size:0.85rem;color:#6b7280">${pct}%</span>
-          <span style="font-weight:800;color:#111827">${val}</span>
-        </div>
-      </div>`;
-  });
-  
-  html += '</div>';
-  container.innerHTML = html;
-}
-
-/* Render test workload balance - category-based */
-function renderTestWorkloadBalanceDonut(containerId, assigneeDist) {
-  const container = gid(containerId);
-  if (!container) return;
-  
-  const entries = Object.entries(assigneeDist || {});
-  if (!entries.length) {
-    container.innerHTML = '<div class="small" style="text-align:center;padding:20px">No workload data</div>';
-    return;
-  }
-  
-  const values = entries.map(e => e[1]);
-  const avg = values.reduce((sum, v) => sum + v, 0) / values.length;
-  
-  const workloadData = {};
-  const colors = {
-    'Overloaded (>150% avg)': '#ef4444',
-    'High (125-150% avg)': '#f59e0b',
-    'Balanced (75-125% avg)': '#10b981',
-    'Low (<75% avg)': '#6b7280'
-  };
-  
-  entries.forEach(([name, count]) => {
-    const ratio = count / avg;
-    let category;
-    if (ratio > 1.5) category = 'Overloaded (>150% avg)';
-    else if (ratio > 1.25) category = 'High (125-150% avg)';
-    else if (ratio >= 0.75) category = 'Balanced (75-125% avg)';
-    else category = 'Low (<75% avg)';
-    
-    workloadData[category] = (workloadData[category] || 0) + 1;
-  });
-  
-  renderDonutChart(containerId, workloadData, colors);
-  
-  const avgInfo = `<div class="small" style="padding:8px;text-align:center;border-top:1px solid #e5e7eb;margin-top:8px">Average workload: <strong>${avg.toFixed(1)}</strong> executions per person</div>`;
-  container.innerHTML += avgInfo;
-}
-
-/* Render test coverage heatmap */
-function renderTestCoverageHeatmap(containerId){
-  const container = gid(containerId);
-  if (!container) return;
-  const stories = globalData.stories||[];
-  if (!stories.length){ container.innerHTML='<div class="small" style="text-align:center;padding:20px">No story data</div>'; return; }
-
-  const testCasesByStory = {};
-  (globalData.testCases||[]).forEach(tc => {
-    if (tc.storyNumber) testCasesByStory[tc.storyNumber]=(testCasesByStory[tc.storyNumber]||0)+1;
+    // aging
+    let age = Number(e.ageDays);
+    if (!(age > 0)) {
+      const edt = parseDMY(e.editDate);
+      age = edt ? Math.max(0, (today - edt)/(1000*60*60*24)) : 0;
+    }
+    if (age <= 3) execAgingBuckets['0-3 days']++;
+    else if (age <= 7) execAgingBuckets['4-7 days']++;
+    else if (age <= 14) execAgingBuckets['8-14 days']++;
+    else execAgingBuckets['15+ days']++;
   });
 
-  const sprintCoverage = {};
-  stories.forEach(s=>{
-    const sprint = s.sprint || 'No Sprint';
-    const tests = testCasesByStory[s.storyNumber]||0;
-    sprintCoverage[sprint] = sprintCoverage[sprint] || { stories:0, withTests:0, totalTests:0 };
-    sprintCoverage[sprint].stories++;
-    sprintCoverage[sprint].totalTests += tests;
-    if (tests>0) sprintCoverage[sprint].withTests++;
+  const passCount = Object.entries(statusDistExec).reduce((s,[k,v]) => s + (k.toLowerCase().includes('pass') ? v : 0), 0);
+  const execPassRate = totalExec ? (passCount/totalExec)*100 : 0;
+
+  // First Pass Yield: earliest execution outcome per test case
+  let fpyPass = 0, fpyTotal = 0, flaky = 0, multiExecTC = 0;
+  byTC.forEach(rec => {
+    if (rec.count>0){ fpyTotal++; if ((rec.earliestStatus||'').includes('pass')) fpyPass++; }
+    const hasPass = rec.statuses.has('passed') || rec.statuses.has('pass');
+    const hasFail = rec.statuses.has('failed') || rec.statuses.has('fail');
+    if (hasPass && hasFail) flaky++;
+    if (rec.count > 1) multiExecTC++;
   });
+  const execFirstPassYield = fpyTotal ? (fpyPass/fpyTotal)*100 : 0;
+  const execFlakyCount = flaky;
+  const execReworkRate = fpyTotal ? (multiExecTC/fpyTotal)*100 : 0;
 
-  const donutData = {};
-  const colors = {};
-  Object.entries(sprintCoverage).forEach(([sprint, d]) => {
-    const cov = d.stories > 0 ? (d.withTests / d.stories) * 100 : 0;
-    donutData[sprint] = d.totalTests;
-    colors[sprint] = cov >= 80 ? '#10b981' : cov >= 60 ? '#f59e0b' : '#ef4444';
-  });
-
-  renderDonutChart(containerId, donutData, colors);
-
-  const totalStories = Object.values(sprintCoverage).reduce((sum, d) => sum + d.stories, 0);
-  const totalWithTests = Object.values(sprintCoverage).reduce((sum, d) => sum + d.withTests, 0);
-  const overallCoverage = totalStories > 0 ? (totalWithTests / totalStories * 100).toFixed(1) : '0.0';
-
-  const summaryInfo = `<div class="small" style="padding:8px;text-align:center;border-top:1px solid #e5e7eb;margin-top:8px">Overall Coverage: <strong>${overallCoverage}%</strong> (${totalWithTests}/${totalStories} stories)</div>`;
-  container.innerHTML += summaryInfo;
-}
-
-/* Render bar chart */
-function renderChart(containerId, data, colors, opts={}){
-  const container = gid(containerId);
-  if (!container) return;
-  const entries = Object.entries(data||{});
-  if (!entries.length){ container.innerHTML='<div class="small" style="text-align:center;padding:20px">No data</div>'; return; }
-  const max = Math.max(...entries.map(e=>e[1]));
-  let html='<div style="padding:8px">';
-  const noTruncate = !!opts.noTruncate;
-
-  entries.sort((a,b)=>b[1]-a[1]).forEach(([key,val])=>{
-    const pct = max>0 ? (val/max)*100 : 0;
-    const color = (colors && colors[key]) || '#6366f1';
-    const label = noTruncate ? key : (key.length>48 ? key.slice(0,48)+'…' : key);
-    html += `
-      <div style="margin-bottom:10px">
-        <div style="display:flex;justify-content:space-between;margin-bottom:6px;gap:8px">
-          <span style="font-weight:600;color:#374151;word-break:break-word" title="${key}">${label}</span>
-          <span style="font-weight:800;color:#111827;white-space:nowrap">${val}</span>
-        </div>
-        <div style="background:${getComputedStyle(document.documentElement).getPropertyValue('--track') || '#e5e7eb'};border-radius:6px;height:10px">
-          <div style="background:${color};height:100%;width:${pct}%;border-radius:6px"></div>
-        </div>
-      </div>`;
-  });
-  html+='</div>'; container.innerHTML=html;
-}
-
-/* Render defects table */
-function renderDefectsTable(containerId){
-  const container = gid(containerId);
-  if (!container) return;
-
-  // NEW: Use defectsReportData if available
-  const defects = defectsReportData || globalData.defects || [];
-  if (!defects.length){
-    container.innerHTML = '<div class="small" style="text-align:center;padding:20px">No defect data</div>';
-    return;
-  }
-
-  const rows = defects.map(d => ({
-    defectNum : d.defectNum || d.defectName || '',
-    storyName : d.storyName || (globalData.stories.find(s=>s.storyNumber===d.storyNumber)?.storyName) || '(Unknown story)',
-    createdBy : d.defectCreatedBy || '',
-    assignedTo: d.defectAssignedTo || '',
-    status    : d.defectStatus || ''
-  }));
-
-  rows.sort((a,b)=>{
-    const dn = (a.defectNum||'').toString().localeCompare((b.defectNum||'').toString(), undefined, {numeric:true});
-    if (dn !== 0) return dn;
-    return a.storyName.localeCompare(b.storyName);
-  });
-
-  let html = '<div style="max-height:480px;overflow:auto;border:1px solid var(--card-border);border-radius:6px">';
-  html += '<table>';
-  html += '<thead><tr>' +
-          '<th style="width:18%">Defect Number</th>' +
-          '<th style="width:32%">Story Name</th>' +
-          '<th style="width:18%">Created By</th>' +
-          '<th style="width:18%">Assigned To</th>' +
-          '<th style="width:14%">Status</th>' +
-          '</tr></thead><tbody>';
-
-  rows.forEach(r=>{
-    html += `<tr>
-      <td>${escapeHtml(r.defectNum)}</td>
-      <td>${escapeHtml(r.storyName)}</td>
-      <td>${escapeHtml(r.createdBy)}</td>
-      <td>${escapeHtml(r.assignedTo)}</td>
-      <td>${escapeHtml(r.status)}</td>
-    </tr>`;
-  });
-
-  html += '</tbody></table></div>';
-  container.innerHTML = html;
-}
-
-/* Render exec status by assignee mini table */
-function renderExecStatusByAssigneeMini(containerId){
-  const container = gid(containerId);
-  if (!container) return;
-  const executions = globalData.executions || [];
-
-  const entriesSrc = getValidExecutions(executions);
-
-  const byAssignee = {};
-  entriesSrc.forEach(e => {
-    const assignee = (e.execAssigned && e.execAssigned.trim()) || '(unassigned)';
-    const status = (e.execStatus || 'No Status').trim();
-    if (!byAssignee[assignee]) byAssignee[assignee] = { total:0, Passed:0, Failed:0, InProgress:0, NotStarted:0, NeedHelp:0, NoStatus:0 };
-    byAssignee[assignee].total++;
-    const s = status.toLowerCase();
-    if (s.includes('pass')) byAssignee[assignee].Passed++;
-    else if (s.includes('fail')) byAssignee[assignee].Failed++;
-    else if (s.includes('need help')) byAssignee[assignee].NeedHelp++;
-    else if (s.includes('not started') || (s.startsWith('not') && s.includes('start'))) byAssignee[assignee].NotStarted++;
-    else if (s === 'no status') byAssignee[assignee].NoStatus++;
-    else if (s.includes('progress')) byAssignee[assignee].InProgress++;
-    else byAssignee[assignee].InProgress++;
-  });
-
-  const entries = Object.entries(byAssignee).sort((a,b)=>b[1].total - a[1].total);
-  if (!entries.length){ container.innerHTML = '<div class="small" style="font-style:italic">No execution data</div>'; return; }
-
-  let html = '<div class="chart-body" style="overflow:auto">';
-  html += '<table style="width:100%">\n<thead><tr>'+
-          '<th style="text-align:left">Assignee</th>'+
-          '<th>Passed</th>'+
-          '<th>Failed</th>'+
-          '<th>In Progress</th>'+
-          '<th>Not Started</th>'+
-          '<th>Need Help</th>'+
-          '<th>Total</th>'+
-          '</tr></thead><tbody>';
-
-  entries.forEach(([name, m]) => {
-    html += `<tr>`+
-      `<td style="text-align:left">${escapeHtml(name)}</td>`+
-      `<td style="color:#10b981;font-weight:600">${m.Passed}</td>`+
-      `<td style="color:#ef4444;font-weight:600">${m.Failed}</td>`+
-      `<td style="color:#3b82f6;font-weight:600">${m.InProgress}</td>`+
-      `<td style="color:#6b7280;font-weight:600">${m.NotStarted}</td>`+
-      `<td style="color:#f59e0b;font-weight:600">${m.NeedHelp}</td>`+
-      `<td style="font-weight:700">${m.total}</td>`+
-    `</tr>`;
-  });
-  html += '</tbody></table></div>';
-  container.innerHTML = html;
-}
-
-/* Render data quality */
-function renderDataQuality(){
-  const container = gid('dqContainer');
-  if (!container) return;
-  const { stories=[], testCases=[], executions=[], defects=[], summaryRef={} } = globalData;
-
-  const validExecutions = getValidExecutions(executions);
-
-  const storiesWithoutTC = stories.filter(s => !testCases.some(tc => tc.storyNumber===s.storyNumber && tc.tcName));
-  const tcWithoutExec = testCases.filter(tc => !validExecutions.some(e => e.storyNumber===tc.storyNumber && e.tcName===tc.tcName));
-  const execWithoutAssignee = validExecutions.filter(e => !e.execAssigned || !e.execAssigned.trim());
-  const defectsWithoutAssignee = defects.filter(d => (d.defectNum || d.defectName) && !d.defectAssignedTo);
-  const highImpactNoTests = stories.filter(s => (s.impact==='Critical' || s.impact==='High') && !testCases.some(tc => tc.storyNumber===s.storyNumber && tc.tcName));
-
-  const calc = {
-    tc: testCases.filter(tc => tc.tcName && tc.tcName.trim()).length,
-    exec: validExecutions.length,
-    def: defects.filter(d => d.defectNum || d.defectName).length,
-    openDef: defects.filter(d => {
-      const st=(d.defectStatus||'').toLowerCase();
-      return st && !(st.includes('closed') || st.includes('resolve') || st.includes('reject'));
-    }).length
-  };
-  const ref = {
-    tc: Number(summaryRef.totalTCRef||0),
-    exec: Number(summaryRef.totalExecRef||0),
-    def: Number(summaryRef.totalDefRef||0),
-    openDef: Number(summaryRef.openDefectsRef||0)
-  };
-  const mismatches = [
-    {label:'Test Cases', c:calc.tc, r:ref.tc},
-    {label:'Executions', c:calc.exec, r:ref.exec},
-    {label:'Defects', c:calc.def, r:ref.def},
-    {label:'# Open Defects', c:calc.openDef, r:ref.openDef}
-  ].filter(x => x.c !== x.r);
-
-  let html = '';
-
-  html += storiesWithoutTC.length
-    ? `<div class="issue" style="margin-bottom:8px"><strong>${storiesWithoutTC.length}</strong> stories without test cases</div>`
-    : `<div class="success" style="margin-bottom:8px">✅ All stories have test cases</div>`;
-
-  html += tcWithoutExec.length
-    ? `<div class="issue" style="margin-bottom:8px"><strong>${tcWithoutExec.length}</strong> test cases without executions</div>`
-    : `<div class="success" style="margin-bottom:8px">✅ All test cases have executions</div>`;
-
-  html += execWithoutAssignee.length
-    ? `<div class="warn" style="margin-bottom:8px"><strong>${execWithoutAssignee.length}</strong> executions without assignees</div>`
-    : `<div class="success" style="margin-bottom:8px">✅ All executions have assignees</div>`;
-
-  html += defectsWithoutAssignee.length
-    ? `<div class="warn" style="margin-bottom:8px"><strong>${defectsWithoutAssignee.length}</strong> defects without assignees</div>`
-    : `<div class="success" style="margin-bottom:8px">✅ All defects have assignees</div>`;
-
-  html += highImpactNoTests.length
-    ? `<div class="issue" style="margin-bottom:8px"><strong>${highImpactNoTests.length}</strong> high/critical stories without test cases</div>`
-    : `<div class="success" style="margin-bottom:8px">✅ All high/critical stories have tests</div>`;
-
-  html += mismatches.length
-    ? `<div class="warn" style="margin-bottom:8px"><strong>Sheet summary mismatch</strong><div class="small" style="margin-top:6px">${mismatches.map(x=>`• ${x.label}: calc ${x.c} vs ref ${x.r}`).join('<br>')}</div></div>`
-    : `<div class="success" style="margin-bottom:8px">✅ Calculated totals match sheet summary</div>`;
-
-  html += `<div style="margin-top:12px;padding:10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:0.9rem;color:#1e3a8a">
-    <strong>Data Summary:</strong><br>
-    • ${stories.length} unique stories<br>
-    • ${calc.tc} test cases (ref: ${ref.tc})<br>
-    • ${calc.exec} executions (ref: ${ref.exec})<br>
-    • ${calc.def} defects (ref: ${ref.def})<br>
-    • ${calc.openDef} open defects (ref: ${ref.openDef})
-  </div>`;
-
-  container.innerHTML = html;
-}
-
-// Stubs for export functions
-function copyEmailBody(){
-  alert('Email copy functionality not yet implemented');
-}
-
-function exportPDF(){
-  alert('PDF export functionality not yet implemented');
-}
-
-/* ---------- Rendering ---------- */
-function renderDashboard(){
-  // FIXED: Hide main sections if comparing multiple files
-  const isComparing = allFileData.length >= 2;
-  
-  // Hide/show main sections based on comparison mode
-  const sectionsToHide = ['metrics', 'section'];
-  document.querySelectorAll('.metrics, .section:not(#comparisonSection)').forEach(el => {
-    if (isComparing) {
-      el.style.display = 'none';
-    } else {
-      el.style.display = '';
+  // Stories without tests by sprint
+  const missingTestsBySprint = {};
+  (stories||[]).forEach(s=>{
+    if (!((s.totalTC||0) > 0)) {
+      const sp = s.sprint || 'No Sprint';
+      missingTestsBySprint[sp] = (missingTestsBySprint[sp]||0)+1;
     }
   });
 
-  // Main cards
+  // Defect Severity Index (weighted average)
+  const sevWeights = { 'critical':4, 'high':3, 'medium':2, 'low':1 };
+  let sevSum = 0;
+  (defects||[]).forEach(d=>{
+    const w = sevWeights[String(d.severity||'').toLowerCase()] || 0;
+    sevSum += w;
+  });
+  const defectSevIndex = (defects||[]).length ? (sevSum/(defects.length)) : 0;
+
+  // NEW: defects by story (prefer defects report, fallback to story totals)
+  const defectsByStory = {};
+  if ((defects||[]).length){
+    defects.forEach(d=>{
+      const key = (d.storyName || d.storyNumber || 'Unknown Story').trim();
+      if (!key) return;
+      defectsByStory[key] = (defectsByStory[key]||0) + 1;
+    });
+  } else {
+    (stories||[]).forEach(s=>{
+      const cnt = Number(s.totalDef||0);
+      if (cnt > 0){
+        const key = (s.storyName || s.storyNumber || 'Unknown Story').trim();
+        defectsByStory[key] = (defectsByStory[key]||0) + cnt;
+      }
+    });
+  }
+
+  return {
+    totalStories, totalPoints, totalTC, totalExec, totalDef,
+    coverage, completion, defectDensity,
+    statusDist, impactDist, sprintDist, assigneeDist, pointsByStatus,
+    execAssigneeDist: (function(){
+      const m = {}; validExec.forEach(e=>{
+        const who = (e.execAssigned && e.execAssigned.trim()) || '(unassigned)';
+        m[who]=(m[who]||0)+1;
+      }); return m;
+    })(),
+    closedDefectsCount,
+    mttrDays: mttrN ? (mttrSum/mttrN) : 0,
+    openAvgSinceUpdate: openN ? (openAgeSum/openN) : 0,
+    openAgingBuckets: agingBuckets,
+    severityDist, complexityDist, typeDist,
+    // NEW fields
+    execStatusDist: statusDistExec,
+    execPassRate, execFirstPassYield, execFlakyCount, execReworkRate,
+    execAgingBuckets: execAgingBuckets,
+    missingTestsBySprint,
+    defectSevIndex,
+    defectsByStory, // NEW
+    refs: {}
+  };
+}
+
+/* Minimal render helpers restored */
+function renderDonutChart(containerId, data, colors){
+  const el = gid(containerId); if (!el) return;
+  const entries = Object.entries(data||{}).filter(([,v])=>v>0);
+  if (!entries.length){ el.innerHTML = '<div class="small" style="text-align:center;padding:20px">No data</div>'; return; }
+  entries.sort((a,b)=>b[1]-a[1]);
+  const total = entries.reduce((s,[,v])=>s+v,0);
+  let html = '<div style="padding:12px">';
+  entries.forEach(([k,v],i)=>{
+    const pct = total?((v/total)*100).toFixed(1):0;
+    const color = (colors && colors[k]) || ['#3b82f6','#10b981','#f59e0b','#8b5cf6','#ef4444','#06b6d4','#ec4899','#14b8a6','#f97316','#6366f1'][i%10];
+    const label = k.length>48 ? k.slice(0,48)+'…' : k;
+    html += `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px">
+        <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">
+          <div style="width:14px;height:14px;background:${color};border-radius:3px"></div>
+          <span style="font-weight:600;color:#374151;word-break:break-word" title="${k}">${label}</span>
+        </div>
+        <div style="display:flex;gap:8px">
+          <span style="color:#6b7280;font-size:.85rem">${pct}%</span>
+          <span style="font-weight:800;color:#111827">${v}</span>
+        </div>
+      </div>`;
+  });
+  html += '</div>'; el.innerHTML = html;
+}
+
+function renderChart(containerId, data){
+  const el = gid(containerId); if (!el) return;
+  const entries = Object.entries(data||{}).filter(([,v])=>v>0);
+  if (!entries.length){ el.innerHTML = '<div class="small" style="text-align:center;padding:20px">No data</div>'; return; }
+  const max = Math.max(...entries.map(([,v])=>v));
+  let html = '<div style="padding:8px">';
+  entries.sort((a,b)=>b[1]-a[1]).forEach(([k,v])=>{
+    const pct = max? (v/max)*100 : 0;
+    const label = k.length>48 ? k.slice(0,48)+'…' : k;
+    html += `
+      <div style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px;gap:8px">
+          <span style="font-weight:600;color:#374151;word-break:break-word" title="${k}">${label}</span>
+          <span style="font-weight:800;color:#111827">${v}</span>
+        </div>
+        <div style="background:#e5e7eb;border-radius:6px;height:8px">
+          <div style="background:#6366f1;height:100%;width:${pct}%;border-radius:6px"></div>
+        </div>
+      </div>`;
+  });
+  html += '</div>'; el.innerHTML = html;
+}
+
+function renderExecStatusByAssigneeMini(containerId){
+  const el = gid(containerId); if (!el) return;
+  const executions = getValidExecutions(globalData.executions||[]);
+  if (!executions.length){ el.innerHTML = '<div class="small" style="padding:12px">No execution data</div>'; return; }
+  const byA = {};
+  executions.forEach(e=>{
+    const a = (e.execAssigned||'(unassigned)').trim();
+    const s = (e.execStatus||'No Status').trim().toLowerCase();
+    if (!byA[a]) byA[a] = { total:0, pass:0, fail:0, block:0, prog:0, none:0 };
+    byA[a].total++;
+    if (s.includes('pass')) byA[a].pass++;
+    else if (s.includes('fail')) byA[a].fail++;
+    else if (s.includes('block')) byA[a].block++;
+    else if (s.includes('progress')) byA[a].prog++;
+    else byA[a].none++;
+  });
+  const rows = Object.entries(byA).sort((a,b)=>b[1].total-a[1].total);
+  let html = '<div class="chart-body" style="overflow:auto"><table><thead><tr><th style="text-align:left">Assignee</th><th>Pass</th><th>Fail</th><th>Block</th><th>In Prog</th><th>Total</th></tr></thead><tbody>';
+  rows.forEach(([name,m])=>{
+    html += `<tr><td style="text-align:left">${name}</td><td>${m.pass}</td><td>${m.fail}</td><td>${m.block}</td><td>${m.prog+m.none}</td><td><b>${m.total}</b></td></tr>`;
+  });
+  html += '</tbody></table></div>'; el.innerHTML = html;
+}
+
+function renderDefectsTable(containerId){
+  const el = gid(containerId); if (!el) return;
+  const defects = globalData.defects||[];
+  if (!defects.length){ el.innerHTML = '<div class="small" style="padding:20px;text-align:center">No defect data</div>'; return; }
+  const rows = defects.map(d=>({
+    defectNum:d.defectNum||d.defectName||'',
+    storyName:d.storyName||'',
+    createdBy:d.defectCreatedBy||'',
+    assignedTo:d.defectAssignedTo||'',
+    status:d.defectStatus||''
+  })).sort((a,b)=>String(a.defectNum).localeCompare(String(b.defectNum),undefined,{numeric:true}));
+  let html = '<div style="max-height:480px;overflow:auto;border:1px solid var(--card-border);border-radius:6px"><table><thead><tr><th>Defect Number</th><th>Story</th><th>Created By</th><th>Assigned To</th><th>Status</th></tr></thead><tbody>';
+  rows.forEach(r=>{
+    html += `<tr><td>${r.defectNum}</td><td>${r.storyName}</td><td>${r.createdBy}</td><td>${r.assignedTo}</td><td>${r.status}</td></tr>`;
+  });
+  html += '</tbody></table></div>'; el.innerHTML = html;
+}
+
+function renderDataQuality(){
+  const el = gid('dqContainer'); if (!el) return;
+  const { stories=[], defects=[] } = globalData;
+  const storiesWithoutTC = stories.filter(s => (s.totalTC||0)===0);
+  const openDef = defects.filter(d => {
+    const st=(d.defectStatus||'').toLowerCase();
+    return st && !(st.includes('closed')||st.includes('resolve')||st.includes('reject'));
+  }).length;
+  el.innerHTML = `
+    <div class="${storiesWithoutTC.length?'issue':'success'}" style="margin-bottom:8px">
+      ${storiesWithoutTC.length? `<b>${storiesWithoutTC.length}</b> stories without test cases` : '✅ All stories have test cases'}
+    </div>
+    <div class="${defects.length?'success':'warn'}">
+      ${defects.length? `<b>${openDef}</b> open defects out of <b>${defects.length}</b> total` : 'No defects uploaded'}
+    </div>`;
+}
+
+function renderTestWorkloadBalanceDonut(containerId, assigneeDist){
+  const entries = Object.entries(assigneeDist||{});
+  if (!entries.length){ gid(containerId).innerHTML = '<div class="small" style="padding:20px;text-align:center">No workload data</div>'; return; }
+  const vals = entries.map(([,v])=>v);
+  const avg = vals.reduce((s,v)=>s+v,0)/vals.length;
+  const buckets = {
+    'Overloaded (>150% avg)':0,
+    'High (125-150% avg)':0,
+    'Balanced (75-125% avg)':0,
+    'Low (<75% avg)':0
+  };
+  entries.forEach(([,v])=>{
+    const r = v/avg;
+    if (r>1.5) buckets['Overloaded (>150% avg)']++;
+    else if (r>1.25) buckets['High (125-150% avg)']++;
+    else if (r>=0.75) buckets['Balanced (75-125% avg)']++;
+    else buckets['Low (<75% avg)']++;
+  });
+  renderDonutChart(containerId, buckets, {
+    'Overloaded (>150% avg)':'#ef4444','High (125-150% avg)':'#f59e0b','Balanced (75-125% avg)':'#10b981','Low (<75% avg)':'#6b7280'
+  });
+  gid(containerId).innerHTML += `<div class="small" style="text-align:center;padding:8px;border-top:1px solid #e5e7eb">Average: <b>${avg.toFixed(1)}</b> executions/person</div>`;
+}
+
+function renderTestCoverageHeatmap(containerId){
+  const el = gid(containerId); if (!el) return;
+  const stories = globalData.stories||[];
+  if (!stories.length){ el.innerHTML = '<div class="small" style="padding:20px;text-align:center">No story data</div>'; return; }
+  const bySprint = {};
+  stories.forEach(s=>{
+    const sprint = s.sprint||'No Sprint';
+    bySprint[sprint] = bySprint[sprint]||{ stories:0, withTests:0, totalTests:0 };
+    bySprint[sprint].stories++;
+    bySprint[sprint].totalTests += (s.totalTC||0);
+    if ((s.totalTC||0)>0) bySprint[sprint].withTests++;
+  });
+  const donutData = {}, colors = {};
+  Object.entries(bySprint).forEach(([sprint, d])=>{
+    const cov = d.stories? (d.withTests/d.stories)*100 : 0;
+    donutData[sprint] = d.totalTests;
+    colors[sprint] = cov>=80?'#10b981': cov>=60?'#f59e0b':'#ef4444';
+  });
+  renderDonutChart(containerId, donutData, colors);
+  const totStories = Object.values(bySprint).reduce((s,d)=>s+d.stories,0);
+  const withTests = Object.values(bySprint).reduce((s,d)=>s+d.withTests,0);
+  const overall = totStories? ((withTests/totStories)*100).toFixed(1) : '0.0';
+  el.innerHTML += `<div class="small" style="text-align:center;padding:8px;border-top:1px solid #e5e7eb">Overall Coverage: <b>${overall}%</b> (${withTests}/${totStories})</div>`;
+}
+
+/* RESTORED: render dashboard to update UI */
+function renderDashboard(){
+  // Cards
   setTxt('mStories', metrics.totalStories);
   setTxt('mPoints', metrics.totalPoints);
   setTxt('mTC', metrics.totalTC);
   setTxt('mExec', metrics.totalExec);
 
-  // Add quick tooltips with reference totals (from summary row)
-  if (gid('mTC')) gid('mTC').title = `Ref (sheet total): ${metrics.refs?.totalTCRef ?? 0}`;
-  if (gid('mExec')) gid('mExec').title = `Ref (sheet total): ${metrics.refs?.totalExecRef ?? 0}`;
-  if (gid('mDef')) gid('mDef').title = `Ref (sheet total): ${metrics.refs?.totalDefRef ?? 0}`;
+  // Executions breakdown (will be 0 without executions report)
+  const executions = getValidExecutions(globalData.executions||[]);
+  const passed = executions.filter(e=> (e.execStatus||'').toLowerCase().includes('pass')).length;
+  const failed = executions.filter(e=> (e.execStatus||'').toLowerCase().includes('fail')).length;
+  const blocked = executions.filter(e=> (e.execStatus||'').toLowerCase().includes('block')).length;
+  setTxt('mPassed', passed);
+  setTxt('mFailed', failed);
+  setTxt('mBlocked', blocked);
 
-  // Executions breakdown
-  const validExecutions = getValidExecutions(globalData.executions);
-  const passedExecutions = validExecutions.filter(e => e.execStatus && e.execStatus.toLowerCase().includes('pass')).length;
-  const failedExecutions = validExecutions.filter(e => e.execStatus && e.execStatus.toLowerCase().includes('fail')).length;
-  const blockedExecutions = validExecutions.filter(e => e.execStatus && e.execStatus.toLowerCase().includes('block')).length;
+  // Defects from defects report if present
+  setTxt('mDef', (globalData.defects||[]).length);
 
-  setTxt('mPassed', passedExecutions);
-  setTxt('mFailed', failedExecutions);
-  setTxt('mBlocked', blockedExecutions);
-  // Set main defects card to defect records count (from report if present)
-  const defectsToUse = defectsReportData || globalData.defects;
-  setTxt('mDef', (defectsToUse||[]).length);
   setTxt('mCov', metrics.coverage + '%');
   setTxt('mCompl', metrics.completion + '%');
 
   // User Stories segment
-  const storiesWithoutTC = globalData.stories.filter(s => !globalData.testCases.some(tc => tc.storyNumber===s.storyNumber && tc.tcName));
-  const highImpactCount = globalData.stories.filter(s => s.impact==='High' || s.impact==='Critical').length;
-
+  const stories = globalData.stories||[];
+  const storiesWithoutTC = stories.filter(s => (s.totalTC||0)===0);
+  const highImpactCount = stories.filter(s => (s.impact==='High' || s.impact==='Critical')).length;
   setTxt('storyTotal', metrics.totalStories);
-  setTxt('storyAvgPoints', metrics.avgPointsPerStory);
+  setTxt('storyAvgPoints', (metrics.totalStories? (metrics.totalPoints/metrics.totalStories).toFixed(1):'0.0'));
   setTxt('storyNoTests', storiesWithoutTC.length);
   setTxt('storyHighImpact', highImpactCount);
 
-  // Change to donut charts
   renderDonutChart('storyStatusChart', metrics.statusDist, {
     'Ready for Production Deployment':'#10b981','Development In Progress':'#f59e0b','Ready for Testing':'#3b82f6','Ready for Development':'#8b5cf6'
   });
-  renderDonutChart('storyImpactChart', metrics.impactDist, {
-    'Critical':'#dc2626','High':'#ea580c','Medium':'#f59e0b','Low':'#10b981'
-  });
+
   renderDonutChart('storySprintChart', metrics.sprintDist, {});
 
-  // Tests & Executions
+  // NEW: Render "Defect Count by Story" from metrics
+  renderChart('defectCountByStoryChart', metrics.defectsByStory || {});
+
+  // Tests & Executions segment
   setTxt('testTotal', metrics.totalTC);
   setTxt('execTotal', metrics.totalExec);
-  setTxt('execCoverage', metrics.testEfficiency + '%');
-  const unassigned = validExecutions.filter(e => !e.execAssigned || !e.execAssigned.trim()).length;
-  setTxt('execUnassigned', unassigned);
-  setTxt('execPassed', passedExecutions);
-  setTxt('execFailed', failedExecutions);
-  setTxt('execBlocked', blockedExecutions);
-  const execPerTest = metrics.totalTC>0 ? (metrics.totalExec/metrics.totalTC).toFixed(1) : '0.0';
+  // FIX: reuse the executions list computed above (remove duplicate declaration)
+  // const executions = getValidExecutions(globalData.executions||[]); // removed
+  const uniqueTC = new Set((globalData.testCases||[]).map(t=>`${t.storyNumber}||${t.tcName}`)).size;
+  const execPerTest = uniqueTC ? (metrics.totalExec/uniqueTC).toFixed(1) : '0.0';
+  const execCov = metrics.totalTC? ((metrics.totalExec/metrics.totalTC)*100).toFixed(1) : '0.0';
+  setTxt('execCoverage', execCov + '%');
+  setTxt('execUnassigned', executions.filter(e => !(e.execAssigned||'').trim()).length);
+  setTxt('execPassed', passed);
+  setTxt('execFailed', failed);
+  setTxt('execBlocked', blocked);
   setTxt('execPerTest', execPerTest);
 
-  // NEW: render compact Exec Status by Assignee panel (columns R and S)
-  if (gid('execStatusByAssigneeMini')) {
-    renderExecStatusByAssigneeMini('execStatusByAssigneeMini');
+  // NEW advanced KPIs
+  setTxt('execPassRate', (metrics.execPassRate||0).toFixed(1) + '%');
+  setTxt('execFPY', (metrics.execFirstPassYield||0).toFixed(1) + '%');
+  setTxt('execFlaky', metrics.execFlakyCount || 0);
+  setTxt('execReworkRate', (metrics.execReworkRate||0).toFixed(1) + '%');
+
+  // NEW: render the missing execution charts
+  // 1) Mini table by assignee
+  renderExecStatusByAssigneeMini('execStatusByAssigneeMini');
+
+  // 2) Executions by Status donut
+  (function(){
+    const executions = getValidExecutions(globalData.executions||[]);
+    const statusDist = {};
+    executions.forEach(e=>{
+      const st = (e.execStatus||'No Status').trim();
+      statusDist[st] = (statusDist[st]||0)+1;
+    });
+    renderDonutChart('execStatusChart', statusDist, {
+      'Passed':'#10b981','Failed':'#ef4444','Blocked':'#f59e0b','In Progress':'#6366f1','Not Started':'#6b7280','No Status':'#94a3b8'
+    });
+  })();
+
+  // 3) Executions by Assignee donut
+  renderDonutChart('execByAssigneeChart', metrics.execAssigneeDist||{}, {});
+
+  // 4) Workload balance donut
+  renderTestWorkloadBalanceDonut('testWorkloadChart', metrics.execAssigneeDist||{});
+
+  // 5) Coverage heatmap by sprint
+  renderTestCoverageHeatmap('testCoverageHeatmapChart');
+
+  // Build "Test Cases by Story"
+  const tcByStory = {};
+ 
+  if ((globalData.testCases||[]).length){
+    globalData.testCases.forEach(tc=>{
+      const key = tc.storyName || tc.storyNumber || 'Unknown Story';
+      tcByStory[key] = (tcByStory[key]||0) + 1;
+    });
+  } else {
+    // Fallback to Stories’ # Total Test Cases if no separate TC report
+    (globalData.stories||[]).forEach(s=>{
+      if (s.totalTC) tcByStory[s.storyName || s.storyNumber || 'Unknown Story'] = s.totalTC;
+    });
   }
+  renderChart('testCasesByStoryChart', tcByStory);
 
-  const testCasesByStory = {};
-  globalData.testCases.forEach(tc => {
-    if (tc.storyName) testCasesByStory[tc.storyName]=(testCasesByStory[tc.storyName]||0)+1;
-  });
-  // show full story name (no truncation)
-  renderChart('testCasesByStoryChart', testCasesByStory, {}, { noTruncate:true });
-
-  // Render execution status chart as donut
-  const execStatusDist = {};
-  validExecutions.forEach(e => {
-    const status = (e.execStatus && e.execStatus.trim()) || 'No Status';
-    execStatusDist[status] = (execStatusDist[status] || 0) + 1;
-  });
-  renderDonutChart('execStatusChart', execStatusDist, {
-    'Pass':'#10b981','Passed':'#10b981','Failed':'#ef4444','Fail':'#ef4444',
-    'Blocked':'#f59e0b','In Progress':'#3b82f6','Not Run':'#6b7280','Pending':'#8b5cf6','No Status':'#6b7280'
-  });
-
-  renderDonutChart('execByAssigneeChart', metrics.execAssigneeDist, {});
-  if (gid('testWorkloadChart')) renderTestWorkloadBalanceDonut('testWorkloadChart', metrics.execAssigneeDist);
-  if (gid('testCoverageHeatmapChart')) renderTestCoverageHeatmap('testCoverageHeatmapChart');
-
-  // Defects - Use defectsReportData if available, otherwise use parsed defects from main file
-  // const defectsToUse = defectsReportData || globalData.defects; // already defined above
-  const criticalDefects = defectsToUse.filter(d => {
-    const s = globalData.stories.find(x => x.storyNumber===d.storyNumber);
-    const impact = (d.storyImpact && d.storyImpact.trim()) || (s?.impact) || 'Unknown';
-    return impact === 'Critical';
-  }).length;
-
-  // Use calculated open defects and attach reference tooltip
+  // Defects segment
+  const defects = globalData.defects||[];
   setTxt('defectTotal', metrics.totalDef);
   setTxt('defectDensityVal', metrics.defectDensity);
+  const criticalDefects = defects.filter(d => String(d.severity||'').toLowerCase()==='critical').length;
   setTxt('defectCritical', criticalDefects);
-  const openDefectsCount = defectsToUse.filter(d => {
-    const st = (d.defectStatus||'').toLowerCase();
-    return st && !(st.includes('closed') || st.includes('resolve') || st.includes('reject'));
+  const openDefectsCount = defects.filter(d=>{
+    const st=(d.defectStatus||'').toLowerCase();
+    return st && !(st.includes('closed')||st.includes('resolve')||st.includes('reject'));
   }).length;
   setTxt('defectOpen', openDefectsCount);
-  if (gid('defectOpen')) gid('defectOpen').title = `Ref (sheet # Open Defects): ${metrics.refs?.openDefectsRef ?? 0}`;
-  setTxt('defectPerStory', (metrics.totalDef/Math.max(1,metrics.totalStories)).toFixed(1));
+  setTxt('defectPerStory', (metrics.totalStories? (metrics.totalDef/metrics.totalStories).toFixed(1) : '0.0'));
+  setTxt('defectClosed', metrics.closedDefectsCount||0);
+  setTxt('defectMTTR', (metrics.mttrDays||0).toFixed(1));
+  setTxt('defectOpenAvgAge', (metrics.openAvgSinceUpdate||0).toFixed(1));
 
-  // NEW: render extended defect metrics
-  setTxt('defectClosed', metrics.closedDefectsCount || 0);
-  setTxt('defectMTTR', (metrics.mttrDays || 0).toFixed(1));
-  setTxt('defectOpenAvgAge', (metrics.openAvgSinceUpdate || 0).toFixed(1));
-
-  // Build and render Defects by Status
   const defectStatusDist = {};
-  (defectsToUse || []).forEach(d => {
-    const st = (d.defectStatus && d.defectStatus.trim()) || 'Unknown';
-    defectStatusDist[st] = (defectStatusDist[st] || 0) + 1;
+  defects.forEach(d=>{
+    const st = (d.defectStatus||'Unknown').trim();
+    defectStatusDist[st]=(defectStatusDist[st]||0)+1;
   });
   renderDonutChart('defectStatusChart', defectStatusDist, {});
+  renderDonutChart('defectSeverityChart', metrics.severityDist||{}, {
+    'Critical':'#dc2626','High':'#ea580c','Medium':'#f59e0b','Low':'#10b981','Unknown':'#6b7280'
+  });
+  renderDonutChart('defectComplexityChart', metrics.complexityDist||{}, {
+    'Small':'#60a5fa','Medium':'#6366f1','Large':'#8b5cf6','Unknown':'#6b7280','':'#6b7280'
+  });
+  renderDonutChart('defectTypeChart', metrics.typeDist||{}, {});
+  renderDonutChart('defectAgingChart', metrics.openAgingBuckets||{}, {
+    '0-3 days':'#22c55e','4-7 days':'#84cc16','8-14 days':'#f59e0b','15+ days':'#ef4444'
+  });
+  renderDefectsTable('defectsByStoryChart');
 
-  // REMOVED: Defects by Story Impact rendering
-  // REMOVED: Defect Trend Analysis rendering
-
-  // Keep additional donuts
-  if (gid('defectSeverityChart')) {
-    renderDonutChart('defectSeverityChart', metrics.severityDist || {}, {
-      'Critical':'#dc2626','High':'#ea580c','Medium':'#f59e0b','Low':'#10b981','Unknown':'#6b7280'
-    });
-  }
-  if (gid('defectComplexityChart')) {
-    renderDonutChart('defectComplexityChart', metrics.complexityDist || {}, {
-      'Small':'#60a5fa','Medium':'#6366f1','Large':'#8b5cf6','Unknown':'#6b7280','':'#6b7280'
-    });
-  }
-  if (gid('defectTypeChart')) {
-    renderDonutChart('defectTypeChart', metrics.typeDist || {}, {});
-  }
-  if (gid('defectAgingChart')) {
-    renderDonutChart('defectAgingChart', metrics.openAgingBuckets || {}, {
-      '0-3 days':'#22c55e','4-7 days':'#84cc16','8-14 days':'#f59e0b','15+ days':'#ef4444'
-    });
-  }
-
-  // Ensure defects table is rendered
-  if (gid('defectsByStoryChart')) {
-    renderDefectsTable('defectsByStoryChart');
-  }
-
-  // Data quality
+  // Data Quality
   renderDataQuality();
-  if (fileComparison) renderComparison();
+  // NEW: Stories Without Tests by Sprint
+  renderDonutChart('missingTestsBySprintChart', metrics.missingTestsBySprint||{}, {});
+  
+  // Defects add-on
+  setTxt('defectSevIdx', (metrics.defectSevIndex||0).toFixed(2));
+  
+  // ...existing code...
 }
 
-/* REPLACE stub functions with actual implementations */
-function generateComparison() {
-  if (allFileData.length < 2) return null;
-
-  const baseFile = allFileData[0];
-  const currentFile = allFileData[allFileData.length - 1];
-
-  const comparison = {
-    baseFile: baseFile.fileName,
-    currentFile: currentFile.fileName,
-    metrics: {},
-    newStories: [],
-    removedStories: [],
-    newTestCases: [],
-    removedTestCases: [],
-    newDefects: [],
-    removedDefects: []
-  };
-
-  // Metrics diff - FIXED: current - base (not base - current)
-  for (const key of ['totalStories','totalPoints','totalTC','totalExec','totalDef','readyForProd','coverage','completion']) {
-    const baseVal = parseFloat(baseFile.metrics[key]) || 0;
-    const currentVal = parseFloat(currentFile.metrics[key]) || 0;
-    comparison.metrics[key] = {
-      base: baseFile.metrics[key],
-      current: currentFile.metrics[key],
-      diff: currentVal - baseVal  // CORRECTED: current minus base
-    };
+/* Hook up unified upload */
+document.addEventListener('DOMContentLoaded', () => {
+  const fileInput = gid('fileInput');
+  if (fileInput){
+    fileInput.addEventListener('change', e => {
+      if (e.target.files && e.target.files.length) {
+        processReportFiles(Array.from(e.target.files));
+      }
+    });
   }
+});
 
-  // Stories diff
-  const baseStories = new Set(baseFile.data.stories.map(s => s.storyNumber));
-  const currentStories = new Set(currentFile.data.stories.map(s => s.storyNumber));
-  comparison.newStories = currentFile.data.stories.filter(s => !baseStories.has(s.storyNumber));
-  comparison.removedStories = baseFile.data.stories.filter(s => !currentStories.has(s.storyNumber));
+// Add: Copy Email Body function
+async function copyEmailBody(){
+  try{
+    const now = new Date();
+    const executions = getValidExecutions(globalData.executions||[]);
+    const passed = executions.filter(e=> (e.execStatus||'').toLowerCase().includes('pass')).length;
+    const failed = executions.filter(e=> (e.execStatus||'').toLowerCase().includes('fail')).length;
+    const blocked = executions.filter(e=> (e.execStatus||'').toLowerCase().includes('block')).length;
 
-  // Test cases diff
-  const baseTC = new Set(baseFile.data.testCases.map(tc => `${tc.storyNumber}||${tc.tcName}`));
-  const currentTC = new Set(currentFile.data.testCases.map(tc => `${tc.storyNumber}||${tc.tcName}`));
-  comparison.newTestCases = currentFile.data.testCases.filter(tc => !baseTC.has(`${tc.storyNumber}||${tc.tcName}`));
-  comparison.removedTestCases = baseFile.data.testCases.filter(tc => !currentTC.has(`${tc.storyNumber}||${tc.tcName}`));
+    const defects = globalData.defects||[];
+    const openDefects = defects.filter(d=>{
+      const s=(d.defectStatus||'').toLowerCase();
+      return s && !(s.includes('closed')||s.includes('resolve')||s.includes('reject'));
+    }).length;
+    const criticalDef = defects.filter(d => String(d.severity||'').toLowerCase()==='critical').length;
 
-  // Defects diff
-  const baseDef = new Set(baseFile.data.defects.map(d => `${d.storyNumber}||${d.defectNum}||${d.defectName}`));
-  const currentDef = new Set(currentFile.data.defects.map(d => `${d.storyNumber}||${d.defectNum}||${d.defectName}`));
-  comparison.newDefects = currentFile.data.defects.filter(d => !baseDef.has(`${d.storyNumber}||${d.defectNum}||${d.defectName}`));
-  comparison.removedDefects = baseFile.data.defects.filter(d => !currentDef.has(`${d.storyNumber}||${d.defectNum}||${d.defectName}`));
+    const body = [
+      `Enhanced Release Report — ${now.toLocaleDateString()}`,
+      '',
+      `Stories: ${metrics.totalStories}`,
+      `Coverage: ${metrics.coverage}% | Completion: ${metrics.completion}%`,
+      '',
+      `Tests: ${metrics.totalTC} cases | ${metrics.totalExec} executions`,
+      `Pass rate: ${Number(metrics.execPassRate||0).toFixed(1)}%`,
+      `First Pass Yield: ${Number(metrics.execFirstPassYield||0).toFixed(1)}%`,
+      `Passed: ${passed} | Failed: ${failed} | Blocked: ${blocked}`,
+      `Flaky Tests: ${metrics.execFlakyCount||0} | Rework Rate: ${Number(metrics.execReworkRate||0).toFixed(1)}%`,
+      '',
+      `Defects: ${metrics.totalDef} total (Open: ${openDefects}, Closed: ${metrics.closedDefectsCount||0})`,
+      `Critical defects: ${criticalDef} | Severity Index: ${Number(metrics.defectSevIndex||0).toFixed(2)}`,
+      '',
+      'Generated by Release Dashboard'
+    ].join('\n');
 
-  return comparison;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(body);
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = body;
+      ta.style.position='fixed'; ta.style.left='-9999px';
+      document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); document.body.removeChild(ta);
+    }
+    alert('Email body copied to clipboard.');
+  }catch(e){
+    console.error(e);
+    showError('Failed to copy email body.');
+  }
 }
 
-function renderComparison() {
-  const section = document.getElementById('comparisonSection');
-  const container = document.getElementById('comparisonContainer');
-  if (!section || !container || !fileComparison) return;
-  
-  section.style.display = 'block';
+// Add: Export PDF function
+async function exportPDF(){
+  try{
+    const node = gid('dashboard');
+    if (!node) return showError('Dashboard not found.');
+    const canvas = await html2canvas(node, { scale: 2, useCORS: true });
+    const imgData = canvas.toDataURL('image/png');
 
-  const cmp = fileComparison;
-  const diffColor = v => v > 0 ? '#10b981' : v < 0 ? '#ef4444' : '#6b7280';
-  const diffIcon = v => v > 0 ? '📈' : v < 0 ? '📉' : '➡️';
-  const diffFmt = (v, isPercent = false) => {
-    const numVal = Number(v) || 0;
-    const formatted = isPercent ? numVal.toFixed(1) : Math.round(numVal);
-    return `<span style="color:${diffColor(numVal)};font-weight:700">${numVal>0?'+':''}${formatted}${isPercent?'%':''}</span>`;
-  };
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ orientation: 'l', unit: 'pt', format: 'a4' });
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
 
-  // Build simplified comparison HTML
-  let html = `
-    <div style="background:#f8fafc;border:2px solid #e2e8f0;border-radius:12px;padding:24px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;padding-bottom:16px;border-bottom:2px solid #e2e8f0">
-        <div>
-          <div style="font-size:1.2rem;font-weight:700;color:#1e293b;margin-bottom:4px">
-            📊 Files Comparison
-          </div>
-          <div style="color:#64748b;font-size:0.9rem;margin-top:4px">
-            <strong style="color:#3b82f6">${escapeHtml(cmp.baseFile)}</strong> 
-            <span style="margin:0 8px">→</span>
-            <strong style="color:#6366f1">${escapeHtml(cmp.currentFile)}</strong>
-          </div>
-        </div>
-      </div>
+    const imgW = pageW;
+    const imgH = canvas.height * (imgW / canvas.width);
+    const drawH = Math.min(imgH, pageH);
 
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px">
-        ${Object.entries(cmp.metrics).map(([key, v]) => {
-          const isPercent = key === 'coverage' || key === 'completion';
-          const label = key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
-          const diff = v.diff;
-          
-          return `
-            <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,0.05)">
-              <div style="font-weight:600;color:#64748b;font-size:0.85rem;margin-bottom:12px;text-transform:uppercase;letter-spacing:0.5px">
-                ${diffIcon(diff)} ${label}
-              </div>
-              <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
-                <span style="color:#6b7280;font-size:0.9rem">Base:</span>
-                <span style="color:#374151;font-weight:600;font-size:1.1rem">${v.base}</span>
-              </div>
-              <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
-                <span style="color:#6b7280;font-size:0.9rem">Current:</span>
-                <span style="color:#111827;font-weight:700;font-size:1.1rem">${v.current}</span>
-              </div>
-              <div style="display:flex;justify-content:space-between;align-items:baseline;padding-top:8px;border-top:1px solid #f1f5f9">
-                <span style="color:#6b7280;font-size:0.9rem;font-weight:600">Difference:</span>
-                <span style="font-size:1.2rem">${diffFmt(diff, isPercent)}</span>
-              </div>
-            </div>
-          `;
-        }).join('')}
-      </div>
-
-      ${Object.values(cmp.metrics).every(v => v.diff === 0) ? `
-        <div style="background:#f0fdf4;border:2px solid #bbf7d0;border-radius:12px;padding:32px;text-align:center;margin-top:20px">
-          <div style="font-size:3rem;margin-bottom:12px">✅</div>
-          <div style="font-size:1.1rem;font-weight:700;color:#166534;margin-bottom:8px">No Changes Detected</div>
-          <div style="color:#166534">All metrics are identical between the two files.</div>
-        </div>
-      ` : ''}
-    </div>
-  `;
-  
-  container.innerHTML = html;
-  
-  // FIXED: Show only comparison section title when comparing
-  const comparisonTitle = section.querySelector('.title');
-  if (comparisonTitle) {
-    comparisonTitle.textContent = '📊 Files Comparison Report';
+    pdf.addImage(imgData, 'PNG', 0, 0, imgW, drawH, undefined, 'FAST');
+    pdf.save('release-dashboard.pdf');
+  }catch(e){
+    console.error(e);
+    showError('Failed to export PDF.');
   }
 }
 </script>
