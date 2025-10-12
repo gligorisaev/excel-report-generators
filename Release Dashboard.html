@@ -145,8 +145,8 @@
   <div class="upload">
     <div class="upload-area" onclick="document.getElementById('fileInput').click()">
       <div style="font-size:2rem">📁</div>
-      <div style="font-weight:700;margin-top:6px">Add Reports for User Stories, Test Cases, Test Executions and Defects</div>
-      <div class="small">Select 1–4 .xls/.xlsx files — the app will auto-detect report types</div>
+      <div style="font-weight:700;margin-top:6px">Add Reports for Release, User Stories, Test Cases, Test Executions and Defects</div>
+      <div class="small">Select 1–5 .xls/.xlsx files — the app will auto-detect report types</div>
       <input id="fileInput" type="file" accept=".xlsx,.xls" multiple style="display:none"/>
     </div>
 
@@ -155,6 +155,51 @@
   </div>
 
   <div id="dashboard" class="dashboard">
+    <!-- NEW: RELEASE OVERVIEW (shown first) -->
+    <div id="releaseSection" class="section" style="display:none">
+      <div class="title">📦 Release Overview</div>
+      <div class="grid two">
+        <div>
+          <div style="background:#f9fafb;padding:12px;border-radius:8px;border:1px solid var(--card-border)">
+            <div style="margin-bottom:6px">Release: <span id="rName" style="font-weight:800;color:#111827">-</span></div>
+            <div style="margin-bottom:6px">Owner: <span id="rOwner">-</span> • Created By: <span id="rCreatedBy">-</span></div>
+            <div style="margin-bottom:6px">Planned: <span id="rPlanRange">-</span></div>
+            <div style="margin-bottom:6px">Actual Start: <span id="rActualStart">-</span> • Actual End: <span id="rActualEnd">-</span></div>
+            <div style="margin-bottom:6px">Key Deliverables:</div>
+            <div class="small" id="rDeliverables">-</div>
+            <div style="margin-top:6px;margin-bottom:6px">Objectives:</div>
+            <div class="small" id="rObjectives">-</div>
+          </div>
+        </div>
+        <div class="metrics" style="margin:0;display:grid;grid-template-columns:repeat(3,minmax(160px,1fr));gap:12px">
+          <div class="card indigo">
+            <div class="icon">⏱️</div>
+            <div>
+              <div class="h">Timeline Progress</div>
+              <div class="v" id="rTimelinePct">0%</div>
+              <div class="small">elapsed vs plan</div>
+            </div>
+          </div>
+          <div class="card green">
+            <div class="icon">📅</div>
+            <div>
+              <div class="h">Days Remaining</div>
+              <div class="v" id="rDaysRemain">-</div>
+              <div class="small">to planned end</div>
+            </div>
+          </div>
+          <div class="card orange">
+            <div class="icon">📉</div>
+            <div>
+              <div class="h">Schedule Variance</div>
+              <div class="v" id="rScheduleVar">0%</div>
+              <div class="small" id="rOnTrack">On track status</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- MAIN METRICS -->
     <div class="metrics">
       <div class="card blue"><div class="icon">📋</div><div><div class="h">Total Stories</div><div id="mStories" class="v">0</div><div class="small">count of unique user stories</div></div></div>
@@ -356,7 +401,7 @@
 <script>
 /* ===== Compact core app script (single copy) ===== */
 
-let globalData = { stories:[], testCases:[], executions:[], defects:[] };
+let globalData = { stories:[], testCases:[], executions:[], defects:[], release:null };
 let metrics = {};
 let defectsReportData = null;
 let storiesReportData = null;
@@ -409,6 +454,12 @@ function detectReportType(workbook){
   if (!rows || !rows.length) return null;
   const header = (rows[0] || []).map(h => String(h||'').toLowerCase());
 
+  // NEW: Release report
+  if (header.some(h=>h.includes('release: release name')) &&
+      (header.some(h=>h.includes('planned start date')) || header.some(h=>h.includes('planned end date')))) {
+    return 'release';
+  }
+
   // Defects
   if (header.some(h=>h.includes('defect number')) && header.some(h=>h.includes('defect name'))) return 'defects';
 
@@ -426,7 +477,7 @@ function detectReportType(workbook){
   return null;
 }
 
-/* Date helper: dd.mm.yyyy [hh:mm] */
+/* Date helpers */
 function parseDMY(d){
   if (!d) return null;
   const s = String(d).trim();
@@ -436,13 +487,88 @@ function parseDMY(d){
   const dt = new Date(Number(yyyy), Number(mm)-1, Number(dd));
   return isNaN(dt.getTime()) ? null : dt;
 }
-
-/* NEW: strip simple HTML from cells (anchor tags in .xls HTML exports) */
-function stripHtml(s){
-  return String(s ?? '').replace(/<[^>]*>/g,'').trim();
+function daysBetween(a,b){
+  if (!(a instanceof Date) || !(b instanceof Date)) return 0;
+  const ms = (a.setHours(0,0,0,0) - b.setHours(0,0,0,0));
+  return Math.round(ms/(1000*60*60*24));
+}
+function fmtDate(d){
+  if (d instanceof Date && !isNaN(d.getTime())) return d.toLocaleDateString();
+  const p = parseDMY(d);
+  return p ? p.toLocaleDateString() : (d ? String(d) : '-');
 }
 
-/* Parse Stories (matches your sample: Sprint, Story Number, Story: Story Name, etc.) */
+// NEW: safe HTML stripper for .xls HTML exports (links and entities)
+function stripHtml(s){
+  const txt = String(s ?? '');
+  const noTags = txt.replace(/<[^>]*>/g, ' ');
+  return noTags
+    .replace(/&nbsp;/g,' ')
+    .replace(/&amp;/g,'&')
+    .replace(/&quot;/g,'"')
+    .replace(/&#39;/g,"'")
+    .replace(/&lt;/g,'<')
+    .replace(/&gt;/g,'>')
+    .replace(/\s+/g,' ')
+    .trim();
+}
+
+/* NEW: Parse Release report (first non-empty row) */
+function parseReleaseReport(workbook){
+  const ws = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
+  let headerRow = -1;
+  for (let i=0;i<rows.length;i++){
+    const r = rows[i]||[];
+    if (r.some(c => String(c).toLowerCase().includes('release: release name'))) { headerRow = i; break; }
+  }
+  if (headerRow === -1) throw new Error('Could not find release report header row');
+
+  const hdr = rows[headerRow] || [];
+  const col = {};
+  hdr.forEach((h, idx) => {
+    const t = String(h||'').trim().toLowerCase();
+    if (t.includes('release: release name')) col.name = idx;
+    if (t.includes('release: created by')) col.createdBy = idx;
+    if (t.includes('release: owner name')) col.owner = idx;
+    if (t.includes('release: created date')) col.createdDate = idx;
+    if (t.includes('planned start date')) col.plannedStart = idx;
+    if (t.includes('planned end date')) col.plannedEnd = idx;
+    if (t.includes('actual start date')) col.actualStart = idx;
+    if (t.includes('actual end date')) col.actualEnd = idx;
+    if (t.includes('key deliverables')) col.deliverables = idx;
+    if (t.includes('objectives')) col.objectives = idx;
+  });
+
+  for (let i = headerRow + 1; i < rows.length; i++){
+    const r = rows[i] || [];
+    const name = String(r[col.name]||'').trim();
+    if (!name) continue;
+    const plannedStart = String(r[col.plannedStart]||'').trim();
+    const plannedEnd = String(r[col.plannedEnd]||'').trim();
+    const actualStart = String(r[col.actualStart]||'').trim();
+    const actualEnd = String(r[col.actualEnd]||'').trim();
+    return {
+      name,
+      createdBy: String(r[col.createdBy]||'').trim(),
+      owner: String(r[col.owner]||'').trim(),
+      createdDate: String(r[col.createdDate]||'').trim(),
+      plannedStart,
+      plannedEnd,
+      actualStart,
+      actualEnd,
+      keyDeliverables: String(r[col.deliverables]||'').trim(),
+      objectives: String(r[col.objectives]||'').trim(),
+      _plannedStart: parseDMY(plannedStart),
+      _plannedEnd: parseDMY(plannedEnd),
+      _actualStart: parseDMY(actualStart),
+      _actualEnd: parseDMY(actualEnd)
+    };
+  }
+  return null;
+}
+
+/* MISSING: Parse Stories report */
 function parseStoriesReport(workbook){
   const ws = workbook.Sheets[workbook.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
@@ -498,11 +624,10 @@ function parseStoriesReport(workbook){
   return out;
 }
 
-/* Parse Defects (matches your sample, with anchor Story column and Severity/Complexity) */
+/* MISSING: Parse Defects report */
 function parseDefectsReport(workbook){
   const ws = workbook.Sheets[workbook.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
-
   let headerRow = -1;
   for (let i=0;i<rows.length;i++){
     const r = rows[i]||[];
@@ -512,7 +637,6 @@ function parseDefectsReport(workbook){
     if (ok){ headerRow=i; break; }
   }
   if (headerRow === -1) throw new Error('Could not find defects report header row');
-
   const hdr = rows[headerRow] || [];
   const col = {};
   hdr.forEach((h, idx) => {
@@ -526,7 +650,7 @@ function parseDefectsReport(workbook){
     if (t.includes('Defect Name')) col.defectName = idx;
     if (t === 'Status' || /status/i.test(t)) col.status = idx;
     if (/severity/i.test(t)) col.severity = idx;
-    if (/complexity/i.test(t)) col.complexity = idx; // "Defect complexity"
+    if (/complexity/i.test(t)) col.complexity = idx;
     if (/Days Since Last Update/i.test(t)) col.daysSinceUpdate = idx;
     if (/Type/i.test(t)) col.type = idx;
     if (t.includes('Created Date')) col.createdDate = idx;
@@ -535,18 +659,15 @@ function parseDefectsReport(workbook){
     if (t.includes('Assigned To')) col.assignedTo = idx;
     if (/story impact/i.test(t) || tl === 'impact') col.impact = idx;
   });
-
   const out = [];
   for (let i = headerRow + 1; i < rows.length; i++){
     const r = rows[i] || [];
     const defectNum = String(r[col.defectNumber] || '').trim();
     const defectName = String(r[col.defectName] || '').trim();
     if (!defectNum && !defectName) continue;
-
     const storyText = String(r[col.story] || '').replace(/<[^>]*>/g, '').trim();
     const m = storyText.match(/Stab\.(\d+)/);
     const storyNumber = m ? 'Stab.' + m[1] : '';
-
     out.push({
       storyNumber,
       storyName: storyText,
@@ -571,9 +692,7 @@ function parseDefectsReport(workbook){
   return out;
 }
 
-/* NEW: Parse Test Cases report
-   Columns: Release Name, Sprint, Story: Story Name, Test Case Number, Test Case: Test Case Name,
-            Test Case: Created By, Test Case: Created Date, # Open Defects */
+/* MISSING: Parse Test Cases report */
 function parseTestCasesReport(workbook){
   const ws = workbook.Sheets[workbook.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
@@ -585,7 +704,6 @@ function parseTestCasesReport(workbook){
     if (has){ headerRow=i; break; }
   }
   if (headerRow === -1) throw new Error('Could not find test cases report header row');
-
   const hdr = rows[headerRow] || [];
   const col = {};
   hdr.forEach((h, idx) => {
@@ -599,7 +717,6 @@ function parseTestCasesReport(workbook){
     if (t.includes('test case: created date')) col.createdDate = idx;
     if (t.includes('# open defects')) col.openDefects = idx;
   });
-
   const out = [];
   for (let i = headerRow + 1; i < rows.length; i++){
     const r = rows[i] || [];
@@ -624,10 +741,7 @@ function parseTestCasesReport(workbook){
   return out;
 }
 
-/* NEW: Parse Test Case Executions report
-   Columns: Release Name, Sprint Name, Story Name, Test Case, Test Case Execution: Created By,
-            Assigned To, Edit Date, Test Case Execution: Last Modified By, Age (In Days),
-            Target Completion Date, Status */
+/* MISSING: Parse Executions report */
 function parseExecutionsReport(workbook){
   const ws = workbook.Sheets[workbook.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
@@ -640,7 +754,6 @@ function parseExecutionsReport(workbook){
     if (has){ headerRow=i; break; }
   }
   if (headerRow === -1) throw new Error('Could not find test executions report header row');
-
   const hdr = rows[headerRow] || [];
   const col = {};
   hdr.forEach((h, idx) => {
@@ -648,7 +761,6 @@ function parseExecutionsReport(workbook){
     if (t.includes('release name')) col.release = idx;
     if (t.includes('sprint name') || t === 'sprint') col.sprint = idx;
     if (t.includes('story name') || t === 'story') col.storyName = idx;
-    // tightened mapping: only pick "Test Case" header, not "Test Case Execution: ..."
     if ((t === 'test case' || t === 'test case name') && !t.includes('execution')) col.tcName = idx;
     if (t.includes('assigned to')) col.assignedTo = idx;
     if (t.includes('edit date')) col.editDate = idx;
@@ -658,7 +770,6 @@ function parseExecutionsReport(workbook){
     if (t.includes('test case execution: created by')) col.createdBy = idx;
     if (t.includes('target completion date')) col.targetDate = idx;
   });
-
   const out = [];
   for (let i = headerRow + 1; i < rows.length; i++){
     const r = rows[i] || [];
@@ -672,7 +783,7 @@ function parseExecutionsReport(workbook){
       storyNumber,
       storyName: storyText,
       tcName,
-      tceNum: '', // not present in report
+      tceNum: '',
       execAssigned: String(r[col.assignedTo] || '').trim(),
       execStatus: String(r[col.status] || '').trim(),
       editDate: String(r[col.editDate] || '').trim(),
@@ -687,7 +798,7 @@ function parseExecutionsReport(workbook){
   return out;
 }
 
-/* Normalize and de-duplicate executions */
+/* MISSING: Normalize and de-duplicate executions */
 function getValidExecutions(executions){
   const key = e => {
     if (e.tceNum && String(e.tceNum).trim()) return `TCE||${e.storyNumber}||${e.tcName}||${e.tceNum}`;
@@ -706,17 +817,19 @@ function getValidExecutions(executions){
 async function processReportFiles(files){
   showProcessing();
   try{
-    globalData = { stories:[], testCases:[], executions:[], defects:[] };
+    globalData = { stories:[], testCases:[], executions:[], defects:[], release:null };
     defectsReportData = null;
     storiesReportData = null;
 
     for (const file of files) {
-      // CHANGED: single auto reader + detect type
       const wb = await readWorkbook(file);
       const type = detectReportType(wb);
       if (!type) { console.warn('Unknown report type:', file.name); continue; }
 
-      if (type === 'stories') {
+      if (type === 'release') {
+        const rel = parseReleaseReport(wb);
+        if (rel) globalData.release = rel;
+      } else if (type === 'stories') {
         const stories = parseStoriesReport(wb);
         storiesReportData = stories;
         const byNum = new Map(globalData.stories.map(s => [s.storyNumber, s]));
@@ -793,9 +906,9 @@ async function processReportFiles(files){
   }
 }
 
-/* Metrics (update totalDef to use defects length when present) */
+/* Metrics */
 function calculateMetrics(data){
-  const { stories, testCases, executions, defects } = data;
+  const { stories, testCases, executions, defects, release } = data;
   const totalStories = stories.length;
   const totalPoints = stories.reduce((s,x)=>s+(x.points||0),0);
   const totalTC = (testCases||[]).filter(tc => tc.tcName && tc.tcName.trim()).length;
@@ -935,7 +1048,7 @@ function calculateMetrics(data){
   });
   const defectSevIndex = (defects||[]).length ? (sevSum/(defects.length)) : 0;
 
-  // NEW: defects by story (prefer defects report, fallback to story totals)
+  // Compute "defects by story" (prefer defects report, fallback to stories’ #Total Defects)
   const defectsByStory = {};
   if ((defects||[]).length){
     defects.forEach(d=>{
@@ -951,6 +1064,35 @@ function calculateMetrics(data){
         defectsByStory[key] = (defectsByStory[key]||0) + cnt;
       }
     });
+  }
+
+  // NEW: release metrics
+  let releaseInfo = null;
+  if (release && release._plannedStart && release._plannedEnd) {
+    const today = new Date();
+    const totalDays = Math.max(1, daysBetween(new Date(release._plannedEnd), new Date(release._plannedStart)));
+    const elapsedDays = Math.min(totalDays, Math.max(0, daysBetween(new Date(today), new Date(release._plannedStart))));
+    const timelineProgress = (elapsedDays/totalDays)*100;
+
+    const execProgress = totalTC ? (totalExec/totalTC)*100 : 0;
+    const scheduleVariance = execProgress - timelineProgress; // + ahead, - behind
+
+    const daysRemain = Math.max(0, daysBetween(new Date(release._plannedEnd), new Date(today)));
+
+    releaseInfo = {
+      name: release.name,
+      owner: release.owner,
+      createdBy: release.createdBy,
+      plannedRangeText: `${fmtDate(release._plannedStart)} → ${fmtDate(release._plannedEnd)}`,
+      actualStartText: fmtDate(release._actualStart || ''),
+      actualEndText: fmtDate(release._actualEnd || ''),
+      keyDeliverables: release.keyDeliverables || '-',
+      objectives: release.objectives || '-',
+      daysRemaining: daysRemain,
+      timelineProgress,
+      scheduleVariance,
+      onTrackText: scheduleVariance >= -10 ? 'On Track' : 'Behind'
+    };
   }
 
   return {
@@ -974,12 +1116,13 @@ function calculateMetrics(data){
     execAgingBuckets: execAgingBuckets,
     missingTestsBySprint,
     defectSevIndex,
-    defectsByStory, // NEW
+    defectsByStory,
+    releaseInfo,
     refs: {}
   };
 }
 
-/* Minimal render helpers restored */
+/* MISSING: minimal render helpers and burndown renderer */
 function renderDonutChart(containerId, data, colors){
   const el = gid(containerId); if (!el) return;
   const entries = Object.entries(data||{}).filter(([,v])=>v>0);
@@ -1005,7 +1148,6 @@ function renderDonutChart(containerId, data, colors){
   });
   html += '</div>'; el.innerHTML = html;
 }
-
 function renderChart(containerId, data){
   const el = gid(containerId); if (!el) return;
   const entries = Object.entries(data||{}).filter(([,v])=>v>0);
@@ -1028,7 +1170,6 @@ function renderChart(containerId, data){
   });
   html += '</div>'; el.innerHTML = html;
 }
-
 function renderExecStatusByAssigneeMini(containerId){
   const el = gid(containerId); if (!el) return;
   const executions = getValidExecutions(globalData.executions||[]);
@@ -1052,7 +1193,6 @@ function renderExecStatusByAssigneeMini(containerId){
   });
   html += '</tbody></table></div>'; el.innerHTML = html;
 }
-
 function renderDefectsTable(containerId){
   const el = gid(containerId); if (!el) return;
   const defects = globalData.defects||[];
@@ -1070,7 +1210,6 @@ function renderDefectsTable(containerId){
   });
   html += '</tbody></table></div>'; el.innerHTML = html;
 }
-
 function renderDataQuality(){
   const el = gid('dqContainer'); if (!el) return;
   const { stories=[], defects=[] } = globalData;
@@ -1087,17 +1226,13 @@ function renderDataQuality(){
       ${defects.length? `<b>${openDef}</b> open defects out of <b>${defects.length}</b> total` : 'No defects uploaded'}
     </div>`;
 }
-
 function renderTestWorkloadBalanceDonut(containerId, assigneeDist){
   const entries = Object.entries(assigneeDist||{});
   if (!entries.length){ gid(containerId).innerHTML = '<div class="small" style="padding:20px;text-align:center">No workload data</div>'; return; }
   const vals = entries.map(([,v])=>v);
   const avg = vals.reduce((s,v)=>s+v,0)/vals.length;
   const buckets = {
-    'Overloaded (>150% avg)':0,
-    'High (125-150% avg)':0,
-    'Balanced (75-125% avg)':0,
-    'Low (<75% avg)':0
+    'Overloaded (>150% avg)':0,'High (125-150% avg)':0,'Balanced (75-125% avg)':0,'Low (<75% avg)':0
   };
   entries.forEach(([,v])=>{
     const r = v/avg;
@@ -1111,7 +1246,6 @@ function renderTestWorkloadBalanceDonut(containerId, assigneeDist){
   });
   gid(containerId).innerHTML += `<div class="small" style="text-align:center;padding:8px;border-top:1px solid #e5e7eb">Average: <b>${avg.toFixed(1)}</b> executions/person</div>`;
 }
-
 function renderTestCoverageHeatmap(containerId){
   const el = gid(containerId); if (!el) return;
   const stories = globalData.stories||[];
@@ -1136,14 +1270,10 @@ function renderTestCoverageHeatmap(containerId){
   const overall = totStories? ((withTests/totStories)*100).toFixed(1) : '0.0';
   el.innerHTML += `<div class="small" style="text-align:center;padding:8px;border-top:1px solid #e5e7eb">Overall Coverage: <b>${overall}%</b> (${withTests}/${totStories})</div>`;
 }
-
-/* NEW: Executions Burndown renderer */
 function renderExecutionsBurndown(containerId){
   const el = gid(containerId); if (!el) return;
   const execs = getValidExecutions(globalData.executions||[]);
   if (!execs.length){ el.innerHTML = '<div class="small" style="padding:20px;text-align:center">No execution data</div>'; return; }
-
-  // Earliest execution per unique test case (story||tc)
   const earliestByTC = new Map();
   execs.forEach(e=>{
     const key = `${e.storyNumber||e.storyName||''}||${e.tcName||''}`.trim();
@@ -1153,11 +1283,8 @@ function renderExecutionsBurndown(containerId){
     const cur = earliestByTC.get(key);
     if (!cur || dt < cur) earliestByTC.set(key, new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()));
   });
-
   const planned = earliestByTC.size;
   if (!planned){ el.innerHTML = '<div class="small" style="padding:20px;text-align:center">No dated executions</div>'; return; }
-
-  // Timeline bounds
   const dates = Array.from(earliestByTC.values()).sort((a,b)=>a-b);
   const start = new Date(dates[0].getFullYear(), dates[0].getMonth(), dates[0].getDate());
   let last = new Date(dates[dates.length-1].getFullYear(), dates[dates.length-1].getMonth(), dates[dates.length-1].getDate());
@@ -1165,35 +1292,26 @@ function renderExecutionsBurndown(containerId){
     const t = parseDMY(e.targetDate);
     if (t && t > last) last = new Date(t.getFullYear(), t.getMonth(), t.getDate());
   });
-
-  // Build day list
   const days = [];
   for (let d = new Date(start); d <= last; d.setDate(d.getDate()+1)) days.push(new Date(d));
-
-  // Done per day (first execution only)
   const doneByDay = new Map();
   dates.forEach(d=>{
     const k = d.toISOString().slice(0,10);
     doneByDay.set(k, (doneByDay.get(k)||0) + 1);
   });
-
   let done = 0;
   const remaining = days.map(day=>{
     const k = day.toISOString().slice(0,10);
     if (doneByDay.has(k)) done += doneByDay.get(k);
     return planned - done;
   });
-
   const N = Math.max(days.length-1, 1);
   const ideal = days.map((_,i)=> planned*(1 - i/N));
-
-  // SVG line chart
   const width = Math.max(el.clientWidth || 800, 600);
   const height = 220, pad = 32, maxY = Math.max(planned, ...remaining, ...ideal);
   const x = i => pad + (width - pad*2) * (i / Math.max(days.length-1,1));
   const y = v => pad + (height - pad*2) * (1 - (v / (maxY||1)));
   const path = series => series.map((v,i)=>`${i?'L':'M'}${x(i)},${y(v)}`).join(' ');
-
   const svg = `
     <svg width="100%" height="${height}" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
       <rect x="0" y="0" width="${width}" height="${height}" fill="#ffffff"></rect>
@@ -1216,6 +1334,26 @@ function renderExecutionsBurndown(containerId){
 
 /* RESTORED: render dashboard to update UI */
 function renderDashboard(){
+  // NEW: Release Overview render
+  if (metrics.releaseInfo){
+    gid('releaseSection').style.display = '';
+    setTxt('rName', metrics.releaseInfo.name || '-');
+    setTxt('rOwner', metrics.releaseInfo.owner || '-');
+    setTxt('rCreatedBy', metrics.releaseInfo.createdBy || '-');
+    setTxt('rPlanRange', metrics.releaseInfo.plannedRangeText || '-');
+    setTxt('rActualStart', metrics.releaseInfo.actualStartText || '-');
+    setTxt('rActualEnd', metrics.releaseInfo.actualEndText || '-');
+    setTxt('rDeliverables', metrics.releaseInfo.keyDeliverables || '-');
+    setTxt('rObjectives', metrics.releaseInfo.objectives || '-');
+    setTxt('rTimelinePct', (metrics.releaseInfo.timelineProgress||0).toFixed(1) + '%');
+    setTxt('rDaysRemain', metrics.releaseInfo.daysRemaining);
+    const sv = (metrics.releaseInfo.scheduleVariance||0).toFixed(1);
+    setTxt('rScheduleVar', (sv>0?'+':'') + sv + '%');
+    setTxt('rOnTrack', metrics.releaseInfo.onTrackText);
+  } else {
+    const sec = gid('releaseSection'); if (sec) sec.style.display = 'none';
+  }
+
   // Cards
   setTxt('mStories', metrics.totalStories);
   setTxt('mPoints', metrics.totalPoints);
