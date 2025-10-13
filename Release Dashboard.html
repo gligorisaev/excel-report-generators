@@ -1515,7 +1515,7 @@ function renderDashboard(){
   // ...existing code...
 }
 
-/* Hook up unified upload */
+// Hook up unified upload
 document.addEventListener('DOMContentLoaded', () => {
   const fileInput = gid('fileInput');
   if (fileInput){
@@ -1526,6 +1526,65 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 });
+
+// ADD: safe plain text copy fallback that does not require Clipboard API
+function copyPlainTextFallback(text){
+  try{
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly','');
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    return true;
+  }catch(_){ return false; }
+}
+
+// ADD: rich HTML fallback using a hidden contenteditable node (copies HTML + embedded image)
+function copyRichHTMLFallback(html){
+  try{
+    const div = document.createElement('div');
+    div.contentEditable = 'true';
+    div.style.position = 'fixed';
+    div.style.left = '-9999px';
+    div.style.whiteSpace = 'pre-wrap';
+    document.body.appendChild(div);
+    div.innerHTML = html;
+    const sel = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(div);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    const ok = document.execCommand('copy');
+    sel.removeAllRanges();
+    document.body.removeChild(div);
+    return !!ok;
+  }catch(_){ return false; }
+}
+
+// ADD: try to copy PNG image only (some apps will paste the picture if HTML is blocked)
+async function copyImageOnly(pngBlob){
+  if (!(navigator.clipboard && window.ClipboardItem)) return false;
+  try{
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })]);
+    return true;
+  }catch(_){ return false; }
+}
+
+// ADD: helper to insert HTML clipboard fragment markers
+function addClipboardHtmlFragments(html){
+  try{
+    const start = '<!--StartFragment-->';
+    const end = '<!--EndFragment-->';
+    if (html.includes(start) && html.includes(end)) return html;
+    return html
+      .replace('<body>', '<body><!--StartFragment-->')
+      .replace('</body>', '<!--EndFragment--></body>');
+  }catch(_){ return html; }
+}
 
 // Modified: Copy Email Body function to capture the actual rendered dashboard as an image and embed it in the email HTML.
 async function copyEmailBody(){
@@ -1651,76 +1710,79 @@ async function copyEmailBody(){
       'Full dashboard details are included as an image in the HTML version.'
     ].filter(Boolean).join('\n');
 
-    // NEW: RTF fallback (Outlook picks this) + PNG binary on the clipboard
-    const pngBlob = await new Promise(resolve => canvas.toBlob(b => resolve(b), 'image/png'));
-    const pngBuf = await pngBlob.arrayBuffer();
-    const hex = Array.from(new Uint8Array(pngBuf)).map(b => b.toString(16).padStart(2,'0')).join('');
-    const dpi = 96;
-    const picwgoal = Math.round((canvas.width / dpi) * 1440);  // twips
-    const pichgoal = Math.round((canvas.height / dpi) * 1440); // twips
-    const safe = s => String(s || '').replace(/[\\{}]/g, m => '\\' + m).replace(/[^\x00-\x7F]/g,''); // strip non-ascii for RTF safety
+    // ...existing code that builds pngBlob, rtfDoc...
 
-    const rtfLines = [
-      'Release Report Dashboard',
-      `Generated on ${now.toLocaleDateString()} at ${now.toLocaleTimeString()}`,
-      rel ? `Release: ${rel.name} • Owner: ${rel.owner}` : '',
-      '',
-      'Executive Summary:',
-      `Stories: ${metrics.totalStories} total • Coverage: ${metrics.coverage}% • Completion: ${metrics.completion}%`,
-      `Test Cases: ${metrics.totalTC} • Executions: ${metrics.totalExec} • Pass Rate: ${Number(metrics.execPassRate||0).toFixed(1)}%`,
-      `Results: ${passed} passed, ${failed} failed, ${blocked} blocked, ${notStarted} not started, ${inProgress} in progress`,
-      `Defects: ${metrics.totalDef} total (${openDefects} open, ${criticalDef} critical)`,
-      '',
-      'Complete Dashboard View:'
-    ].filter(Boolean).map(safe);
-
-    const rtfHeader = `{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 Arial;}}\\fs22 `;
-    const rtfBody = rtfLines.map(l => `${l} \\par `).join('');
-    const rtfImage = `{\\pict\\pngblip\\picwgoal${picwgoal}\\pichgoal${pichgoal}\n${hex}\n}\n`;
-    const rtfDoc = rtfHeader + rtfBody + rtfImage + '}';
+    // NEW: define the HTML with fragment markers used below
+    const htmlWithFragments = addClipboardHtmlFragments(htmlEmail);
 
     // Copy to clipboard (HTML + Plain + PNG; RTF only if supported)
     if (navigator.clipboard && window.ClipboardItem) {
-      const basePayload = {
-        'text/html': new Blob([htmlEmail], { type: 'text/html' }),
-        'text/plain': new Blob([plain], { type: 'text/plain' }),
-        'image/png': pngBlob
-      };
-
-      // Feature-detect RTF support where available
-      let supportsRTF = false;
-      try {
-        supportsRTF = typeof ClipboardItem !== 'undefined' &&
-                      'supports' in ClipboardItem &&
-                      ClipboardItem.supports &&
-                      ClipboardItem.supports('text/rtf');
-      } catch(_) { supportsRTF = false; }
-
-      const payload = { ...basePayload };
-      if (supportsRTF) {
-        payload['text/rtf'] = new Blob([rtfDoc], { type: 'text/rtf' });
-      }
+      // Best chance for Outlook/Webmail: write HTML-only first
+      const htmlOnlyPayload = new ClipboardItem({
+        'text/html': new Blob([htmlWithFragments], { type: 'text/html' })
+      });
 
       try {
-        await navigator.clipboard.write([new ClipboardItem(payload)]);
-      } catch(err) {
-        // Retry without RTF if unsupported or blocked
+        window.focus();
+        // Request permission if supported (helps bypass user-activation requirement in some browsers)
+        try { await navigator.permissions?.query({ name: 'clipboard-write' }); } catch(_){}
+        await navigator.clipboard.write([htmlOnlyPayload]);
+      } catch (errHTMLOnly) {
+        // Retry with multi-format payload (HTML + Plain + PNG; add RTF if supported)
+        const basePayload = {
+          'text/html': new Blob([htmlWithFragments], { type: 'text/html' }),
+          'text/plain': new Blob([plain], { type: 'text/plain' }),
+          'image/png': pngBlob
+        };
+
+        let supportsRTF = false;
         try {
-          await navigator.clipboard.write([new ClipboardItem(basePayload)]);
-        } catch(_) {
-          // Last resort: plain text only
-          await navigator.clipboard.writeText(plain);
+          supportsRTF = typeof ClipboardItem !== 'undefined' &&
+                        'supports' in ClipboardItem &&
+                        ClipboardItem.supports &&
+                        ClipboardItem.supports('text/rtf');
+        } catch(_) { supportsRTF = false; }
+
+        const payloadMap = { ...basePayload };
+        if (supportsRTF) {
+          payloadMap['text/rtf'] = new Blob([rtfDoc], { type: 'text/rtf' });
+        }
+
+        try {
+          window.focus();
+          await navigator.clipboard.write([new ClipboardItem(payloadMap)]);
+        } catch (errMulti) {
+          // Fallback 1: rich HTML via execCommand on contenteditable
+          window.focus();
+          if (!copyRichHTMLFallback(htmlWithFragments)) {
+            // Fallback 2: copy picture only (so you still get the graphics)
+            if (!(await copyImageOnly(pngBlob))) {
+              // Final fallback: plain text
+              if (!copyPlainTextFallback(plain)) {
+                throw errMulti;
+              }
+              alert('📋 Plain-text summary copied. Try Paste Special > HTML if available.');
+              return;
+            }
+            alert('🖼️ Dashboard image copied. If HTML paste is blocked, paste the image into your email.');
+            return;
+          }
         }
       }
 
-      alert('✅ Email body copied.\nIf Outlook drops the image, use Paste Special > Picture (PNG).');
+      alert('✅ Email body (HTML) copied.\nIf Outlook drops the image, try Paste Special > HTML or use the copied PNG.');
     } else {
-      // Fallback to plain text copy
-      const ta = document.createElement('textarea');
-      ta.value = plain;
-      ta.style.position = 'fixed'; ta.style.left = '-9999px';
-      document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
-      alert('📋 Plain-text summary copied to clipboard.\nHTML/RTF copy is not supported in this browser.');
+      // No Clipboard API: try rich HTML fallback, then image, then plain text
+      window.focus();
+      if (copyRichHTMLFallback(htmlWithFragments)) {
+        alert('✅ Email body (HTML) copied.');
+      } else if (await copyImageOnly(pngBlob)) {
+        alert('🖼️ Dashboard image copied. Paste it into your email.');
+      } else if (copyPlainTextFallback(plain)) {
+        alert('📋 Plain-text summary copied to clipboard.\nHTML copy is not supported in this browser.');
+      } else {
+        showError('Failed to copy to clipboard.');
+      }
     }
   } catch(e) {
     console.error(e);
