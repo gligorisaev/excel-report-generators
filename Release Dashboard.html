@@ -828,6 +828,7 @@ async function processReportFiles(files){
       const type = detectReportType(wb);
       if (!type) { console.warn('Unknown report type:', file.name); continue; }
 
+      // FIX: restore the missing condition for 'release'
       if (type === 'release') {
         const rel = parseReleaseReport(wb);
         if (rel) globalData.release = rel;
@@ -1225,6 +1226,9 @@ function renderDataQuality(){
       ${storiesWithoutTC.length? `<b>${storiesWithoutTC.length}</b> stories without test cases` : '✅ All stories have test cases'}
     </div>
     <div class="${defects.length?'success':'warn'}">
+
+
+
       ${defects.length? `<b>${openDef}</b> open defects out of <b>${defects.length}</b> total` : 'No defects uploaded'}
     </div>`;
 }
@@ -1361,6 +1365,7 @@ function renderDashboard(){
   setTxt('mPoints', metrics.totalPoints);
   setTxt('mTC', metrics.totalTC);
   setTxt('mExec', metrics.totalExec);
+  setTxt('mDef', metrics.totalDef); // NEW: populate Defects tile
 
   // Executions breakdown (will be 0 without executions report)
   const executions = getValidExecutions(globalData.executions||[]);
@@ -1589,110 +1594,51 @@ async function copyEmailBody(){
     const criticalDef = defects.filter(d => String(d.severity||'').toLowerCase()==='critical').length;
     const rel = metrics.releaseInfo || null;
 
-    // Build email HTML with embedded dashboard image
+    // Build email HTML with embedded dashboard image (unchanged text above the heading)
     const htmlEmail = `
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="utf-8">
-    <title>Release Report Dashboard</title>
-    <style>
-        /* Larger base fonts and spacing for better readability */
-        body { 
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; 
-            margin: 0; 
-            padding: 28px; 
-            color: #111827; 
-            background: #ffffff; 
-            font-size: 17px;
-            line-height: 1.7;
-        }
-        .header { 
-            text-align: center; 
-            margin-bottom: 28px; 
-            padding: 24px; 
-            background: #f8fafc; 
-            border-radius: 12px; 
-            border: 1px solid #e5e7eb; 
-        }
-        .header h1 { 
-            font-size: 30px; 
-            font-weight: 800; 
-            margin: 0 0 10px; 
-            color: #1f2937;
-        }
-        .header p { 
-            color: #6b7280; 
-            margin: 6px 0; 
-            font-size: 16px;
-        }
-        .summary { 
-            background: #f9fafb; 
-            padding: 20px; 
-            border-radius: 10px; 
-            margin: 22px 0; 
-            border: 1px solid #e5e7eb;
-        }
-        .summary h3 { 
-            margin: 0 0 12px; 
-            color: #374151; 
-            font-size: 22px;
-            font-weight: 700;
-        }
-        .summary p { 
-            margin: 10px 0; 
-            font-size: 16px;
-            color: #374151;
-        }
-        .summary strong {
-            color: #111827;
-            font-weight: 700;
-        }
-        .dashboard-image { 
-            width: 100%; 
-            max-width: 2000px; 
-            height: auto; 
-            border: 2px solid #e5e7eb; 
-            border-radius: 12px; 
-            margin: 28px auto 14px auto; 
-            display: block; 
-        }
-        .footer { 
-            text-align: center; 
-            margin-top: 24px; 
-            padding: 12px; 
-            color: #6b7280; 
-            font-size: 13px; 
-            border-top: 1px solid #e5e7eb;
-        }
-    </style>
+  <meta charset="utf-8">
+  <title>Release Report Dashboard</title>
+  <style>
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;margin:0;padding:28px;color:#111827;background:#ffffff;font-size:17px;line-height:1.7}
+    .header{text-align:center;margin-bottom:28px;padding:24px;background:#f8fafc;border-radius:12px;border:1px solid #e5e7eb}
+    .header h1{font-size:30px;font-weight:800;margin:0 0 10px;color:#1f2937}
+    .header p{color:#6b7280;margin:6px 0;font-size:16px}
+    .summary{background:#f9fafb;padding:20px;border-radius:10px;margin:22px 0;border:1px solid #e5e7eb}
+    .summary h3{margin:0 0 12px;color:#374151;font-size:22px;font-weight:700}
+    .summary p{margin:10px 0;font-size:16px;color:#374151}
+    .summary strong{color:#111827;font-weight:700}
+    .dashboard-image{width:100%;max-width:2000px;height:auto;border:2px solid #e5e7eb;border-radius:12px;margin:28px auto 14px;display:block}
+    .footer{text-align:center;margin-top:24px;padding:12px;color:#6b7280;font-size:13px;border-top:1px solid #e5e7eb}
+  </style>
 </head>
 <body>
-    <div class="header">
-      <h1>📊 Release Report Dashboard</h1><br>
-      <p>Generated on ${now.toLocaleDateString()} at ${now.toLocaleTimeString()}</p>
-      ${rel ? `<p>Release: <span style="font-weight: normal;">${rel.name}</span> • Owner: <span style="font-weight: normal;">${rel.owner}</span></p>` : ''}
-    </div><br><br>
+  <div class="header">
+    <h1>📊 Release Report Dashboard</h1><br>
+    <p>Generated on ${now.toLocaleDateString()} at ${now.toLocaleTimeString()}</p>
+    ${rel ? `<p>Release: <span style="font-weight: normal;">${rel.name}</span> • Owner: <span style="font-weight: normal;">${rel.owner}</span></p>` : ''}
+  </div><br><br>
 
-    <div class="summary">
-        <h3>Executive Summary:</h3><br>
-        <p><strong>Stories:</strong> ${metrics.totalStories} total • <strong>Coverage:</strong> ${metrics.coverage}% • <strong>Completion:</strong> ${metrics.completion}%</p>
-        <p><strong>Test Cases:</strong> ${metrics.totalTC} • <strong>Executions:</strong> ${metrics.totalExec} • <strong>Pass Rate:</strong> ${Number(metrics.execPassRate||0).toFixed(1)}%</p>
-        <p><strong>Results:</strong> ${passed} passed, ${failed} failed, ${blocked} blocked, ${notStarted} not started, ${inProgress} in progress</p>
-        <p><strong>Defects:</strong> ${metrics.totalDef} total (${openDefects} open, ${criticalDef} critical)</p><br>
-    </div>
+  <div class="summary">
+    <h3>Executive Summary:</h3><br>
+    <p><strong>Stories:</strong> ${metrics.totalStories} total • <strong>Coverage:</strong> ${metrics.coverage}% • <strong>Completion:</strong> ${metrics.completion}%</p>
+    <p><strong>Test Cases:</strong> ${metrics.totalTC} • <strong>Executions:</strong> ${metrics.totalExec} • <strong>Pass Rate:</strong> ${Number(metrics.execPassRate||0).toFixed(1)}%</p>
+    <p><strong>Results:</strong> ${passed} passed, ${failed} failed, ${blocked} blocked, ${notStarted} not started, ${inProgress} in progress</p>
+    <p><strong>Defects:</strong> ${metrics.totalDef} total (${openDefects} open, ${criticalDef} critical)</p><br>
+  </div>
 
-    <!-- Keep all text above unchanged; add the heading for the dashboard view -->
-    <h2 style="color:#374151;font-size:26px;margin: 30px 0 18px;text-align:center;font-weight:700;">📊 Complete Dashboard View</h2>
-    <img src="${dashboardImageDataURL}" class="dashboard-image" alt="Release Dashboard" />
-    
-    <div class="footer">
-        <p>Generated by Release Report Dashboard</p>
-    </div>
+  <h2 style="color:#374151;font-size:26px;margin:30px 0 18px;text-align:center;font-weight:700;">📊 Complete Dashboard View</h2>
+  <img src="${dashboardImageDataURL}" class="dashboard-image" alt="Release Dashboard" />
+
+  <div class="footer">
+    <p>Generated by Release Report Dashboard</p>
+  </div>
 </body>
 </html>`;
 
-    // Plain-text summary fallback
+    // Plain-text summary fallback (unchanged)
     const plain = [
       `Release Report Dashboard — ${now.toLocaleDateString()} ${now.toLocaleTimeString()}`,
       rel ? `Release: ${rel.name} | Owner: ${rel.owner}` : '',
@@ -1705,27 +1651,77 @@ async function copyEmailBody(){
       'Full dashboard details are included as an image in the HTML version.'
     ].filter(Boolean).join('\n');
 
-    // Copy to clipboard (HTML + Plain)
+    // NEW: RTF fallback (Outlook picks this) + PNG binary on the clipboard
+    const pngBlob = await new Promise(resolve => canvas.toBlob(b => resolve(b), 'image/png'));
+    const pngBuf = await pngBlob.arrayBuffer();
+    const hex = Array.from(new Uint8Array(pngBuf)).map(b => b.toString(16).padStart(2,'0')).join('');
+    const dpi = 96;
+    const picwgoal = Math.round((canvas.width / dpi) * 1440);  // twips
+    const pichgoal = Math.round((canvas.height / dpi) * 1440); // twips
+    const safe = s => String(s || '').replace(/[\\{}]/g, m => '\\' + m).replace(/[^\x00-\x7F]/g,''); // strip non-ascii for RTF safety
+
+    const rtfLines = [
+      'Release Report Dashboard',
+      `Generated on ${now.toLocaleDateString()} at ${now.toLocaleTimeString()}`,
+      rel ? `Release: ${rel.name} • Owner: ${rel.owner}` : '',
+      '',
+      'Executive Summary:',
+      `Stories: ${metrics.totalStories} total • Coverage: ${metrics.coverage}% • Completion: ${metrics.completion}%`,
+      `Test Cases: ${metrics.totalTC} • Executions: ${metrics.totalExec} • Pass Rate: ${Number(metrics.execPassRate||0).toFixed(1)}%`,
+      `Results: ${passed} passed, ${failed} failed, ${blocked} blocked, ${notStarted} not started, ${inProgress} in progress`,
+      `Defects: ${metrics.totalDef} total (${openDefects} open, ${criticalDef} critical)`,
+      '',
+      'Complete Dashboard View:'
+    ].filter(Boolean).map(safe);
+
+    const rtfHeader = `{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 Arial;}}\\fs22 `;
+    const rtfBody = rtfLines.map(l => `${l} \\par `).join('');
+    const rtfImage = `{\\pict\\pngblip\\picwgoal${picwgoal}\\pichgoal${pichgoal}\n${hex}\n}\n`;
+    const rtfDoc = rtfHeader + rtfBody + rtfImage + '}';
+
+    // Copy to clipboard (HTML + Plain + PNG; RTF only if supported)
     if (navigator.clipboard && window.ClipboardItem) {
-      const item = new ClipboardItem({
+      const basePayload = {
         'text/html': new Blob([htmlEmail], { type: 'text/html' }),
-        'text/plain': new Blob([plain], { type: 'text/plain' })
-      });
-      await navigator.clipboard.write([item]);
-      alert('✅ Email body with dashboard image copied to clipboard.\n\nPaste directly into your email client to see the full dashboard.');
+        'text/plain': new Blob([plain], { type: 'text/plain' }),
+        'image/png': pngBlob
+      };
+
+      // Feature-detect RTF support where available
+      let supportsRTF = false;
+      try {
+        supportsRTF = typeof ClipboardItem !== 'undefined' &&
+                      'supports' in ClipboardItem &&
+                      ClipboardItem.supports &&
+                      ClipboardItem.supports('text/rtf');
+      } catch(_) { supportsRTF = false; }
+
+      const payload = { ...basePayload };
+      if (supportsRTF) {
+        payload['text/rtf'] = new Blob([rtfDoc], { type: 'text/rtf' });
+      }
+
+      try {
+        await navigator.clipboard.write([new ClipboardItem(payload)]);
+      } catch(err) {
+        // Retry without RTF if unsupported or blocked
+        try {
+          await navigator.clipboard.write([new ClipboardItem(basePayload)]);
+        } catch(_) {
+          // Last resort: plain text only
+          await navigator.clipboard.writeText(plain);
+        }
+      }
+
+      alert('✅ Email body copied.\nIf Outlook drops the image, use Paste Special > Picture (PNG).');
     } else {
       // Fallback to plain text copy
       const ta = document.createElement('textarea');
       ta.value = plain;
-      ta.style.position = 'fixed';
-      ta.style.left = '-9999px';
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-      alert('📋 Plain-text summary copied to clipboard.\nHTML copy is not supported in this browser.');
+      ta.style.position = 'fixed'; ta.style.left = '-9999px';
+      document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+      alert('📋 Plain-text summary copied to clipboard.\nHTML/RTF copy is not supported in this browser.');
     }
-    
   } catch(e) {
     console.error(e);
     
