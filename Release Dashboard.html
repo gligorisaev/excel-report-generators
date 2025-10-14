@@ -395,6 +395,9 @@
       <div class="actions">
         <button class="btn secondary" onclick="copyEmailBody()">📧 Copy Email Body</button>
         <button class="btn" onclick="exportPDF()">📄 Export PDF</button>
+        <!-- NEW -->
+        <button class="btn" onclick="exportPNG()">🖼️ Save PNG</button>
+        <button class="btn" onclick="downloadEML()">✉️ Download .eml</button>
       </div>
     </div>
   </div>
@@ -1592,13 +1595,11 @@ async function copyEmailBody(){
     const dashboard = gid('dashboard');
     if (!dashboard) return showError('Dashboard not found.');
 
-    // Find and temporarily hide the Export Options section
     const exportSection = Array.from(dashboard.querySelectorAll('.section'))
       .find(sec => /Export Options/i.test(sec.querySelector('.title')?.textContent || ''));
     const exportPrevDisplay = exportSection ? exportSection.style.display : undefined;
     if (exportSection) exportSection.style.display = 'none';
 
-    // Temporarily remove height restrictions for full capture
     const chartBodies = dashboard.querySelectorAll('.chart-body');
     const originalStyles = [];
     chartBodies.forEach((el, index) => {
@@ -1612,10 +1613,8 @@ async function copyEmailBody(){
       el.style.height = 'auto';
     });
 
-    // Let layout settle
     await new Promise(resolve => setTimeout(resolve, 100));
 
-    // Capture the dashboard as image
     const canvas = await html2canvas(dashboard, {
       scale: 2,
       useCORS: true,
@@ -1625,7 +1624,6 @@ async function copyEmailBody(){
       height: dashboard.scrollHeight
     });
 
-    // Restore original styles
     chartBodies.forEach((el, index) => {
       const original = originalStyles[index];
       el.style.maxHeight = original.maxHeight;
@@ -1634,7 +1632,9 @@ async function copyEmailBody(){
     });
     if (exportSection) exportSection.style.display = exportPrevDisplay;
 
-    // Get dashboard image as data URL
+    // NEW: create pngBlob for clipboard fallbacks
+    const pngBlob = await new Promise(res => canvas.toBlob(b => res(b), 'image/png', 1.0));
+    // Keep data URL for HTML embedding
     const dashboardImageDataURL = canvas.toDataURL('image/png', 1.0);
 
     // Gather metrics for summary
@@ -1653,25 +1653,23 @@ async function copyEmailBody(){
     const criticalDef = defects.filter(d => String(d.severity||'').toLowerCase()==='critical').length;
     const rel = metrics.releaseInfo || null;
 
-    // Build email HTML with embedded dashboard image (unchanged text above the heading)
+    // Build email HTML
     const htmlEmail = `
 <!DOCTYPE html>
 <html>
-<head>
-  <meta charset="utf-8">
-  <title>Release Report Dashboard</title>
-  <style>
-    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;margin:0;padding:28px;color:#111827;background:#ffffff;font-size:17px;line-height:1.7}
-    .header{text-align:center;margin-bottom:28px;padding:24px;background:#f8fafc;border-radius:12px;border:1px solid #e5e7eb}
-    .header h1{font-size:30px;font-weight:800;margin:0 0 10px;color:#1f2937}
-    .header p{color:#6b7280;margin:6px 0;font-size:16px}
-    .summary{background:#f9fafb;padding:20px;border-radius:10px;margin:22px 0;border:1px solid #e5e7eb}
-    .summary h3{margin:0 0 12px;color:#374151;font-size:22px;font-weight:700}
-    .summary p{margin:10px 0;font-size:16px;color:#374151}
-    .summary strong{color:#111827;font-weight:700}
-    .dashboard-image{width:100%;max-width:2000px;height:auto;border:2px solid #e5e7eb;border-radius:12px;margin:28px auto 14px;display:block}
-    .footer{text-align:center;margin-top:24px;padding:12px;color:#6b7280;font-size:13px;border-top:1px solid #e5e7eb}
-  </style>
+<head><meta charset="utf-8"><title>Release Report Dashboard</title>
+<style>
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;margin:0;padding:28px;color:#111827;background:#ffffff;font-size:17px;line-height:1.7}
+  .header{text-align:center;margin-bottom:28px;padding:24px;background:#f8fafc;border-radius:12px;border:1px solid #e5e7eb}
+  .header h1{font-size:30px;font-weight:800;margin:0 0 10px;color:#1f2937}
+  .header p{color:#6b7280;margin:6px 0;font-size:16px}
+  .summary{background:#f9fafb;padding:20px;border-radius:10px;margin:22px 0;border:1px solid #e5e7eb}
+  .summary h3{margin:0 0 12px;color:#374151;font-size:22px;font-weight:700}
+  .summary p{margin:10px 0;font-size:16px;color:#374151}
+  .summary strong{color:#111827;font-weight:700}
+  .dashboard-image{width:100%;max-width:2000px;height:auto;border:2px solid #e5e7eb;border-radius:12px;margin:28px auto 14px;display:block}
+  .footer{text-align:center;margin-top:24px;padding:12px;color:#6b7280;font-size:13px;border-top:1px solid #e5e7eb}
+</style>
 </head>
 <body>
   <div class="header">
@@ -1679,7 +1677,6 @@ async function copyEmailBody(){
     <p>Generated on ${now.toLocaleDateString()} at ${now.toLocaleTimeString()}</p>
     ${rel ? `<p>Release: <span style="font-weight: normal;">${rel.name}</span> • Owner: <span style="font-weight: normal;">${rel.owner}</span></p>` : ''}
   </div><br><br>
-
   <div class="summary">
     <h3>Executive Summary:</h3><br>
     <p><strong>Stories:</strong> ${metrics.totalStories} total • <strong>Coverage:</strong> ${metrics.coverage}% • <strong>Completion:</strong> ${metrics.completion}%</p>
@@ -1687,17 +1684,12 @@ async function copyEmailBody(){
     <p><strong>Results:</strong> ${passed} passed, ${failed} failed, ${blocked} blocked, ${notStarted} not started, ${inProgress} in progress</p>
     <p><strong>Defects:</strong> ${metrics.totalDef} total (${openDefects} open, ${criticalDef} critical)</p><br>
   </div>
-
   <h2 style="color:#374151;font-size:26px;margin:30px 0 18px;text-align:center;font-weight:700;">📊 Complete Dashboard View</h2>
   <img src="${dashboardImageDataURL}" class="dashboard-image" alt="Release Dashboard" />
-
-  <div class="footer">
-    <p>Generated by Release Report Dashboard</p>
-  </div>
+  <div class="footer"><p>Generated by Release Report Dashboard</p></div>
 </body>
 </html>`;
 
-    // Plain-text summary fallback (unchanged)
     const plain = [
       `Release Report Dashboard — ${now.toLocaleDateString()} ${now.toLocaleTimeString()}`,
       rel ? `Release: ${rel.name} | Owner: ${rel.owner}` : '',
@@ -1710,118 +1702,145 @@ async function copyEmailBody(){
       'Full dashboard details are included as an image in the HTML version.'
     ].filter(Boolean).join('\n');
 
-    // ...existing code that builds pngBlob, rtfDoc...
-
-    // NEW: define the HTML with fragment markers used below
     const htmlWithFragments = addClipboardHtmlFragments(htmlEmail);
+    const rtfDoc = ''; // no-op placeholder
 
-    // Copy to clipboard (HTML + Plain + PNG; RTF only if supported)
     if (navigator.clipboard && window.ClipboardItem) {
-      // Best chance for Outlook/Webmail: write HTML-only first
       const htmlOnlyPayload = new ClipboardItem({
         'text/html': new Blob([htmlWithFragments], { type: 'text/html' })
       });
-
       try {
         window.focus();
-        // Request permission if supported (helps bypass user-activation requirement in some browsers)
         try { await navigator.permissions?.query({ name: 'clipboard-write' }); } catch(_){}
         await navigator.clipboard.write([htmlOnlyPayload]);
-      } catch (errHTMLOnly) {
-        // Retry with multi-format payload (HTML + Plain + PNG; add RTF if supported)
-        const basePayload = {
+        alert('✅ Email body (HTML) copied. Paste into Outlook.');
+        return;
+      } catch(_) {
+        // retry with multiple formats
+        const payloadMap = {
           'text/html': new Blob([htmlWithFragments], { type: 'text/html' }),
-          'text/plain': new Blob([plain], { type: 'text/plain' }),
-          'image/png': pngBlob
+          'text/plain': new Blob([plain], { type: 'text/plain' })
         };
-
-        let supportsRTF = false;
+        if (pngBlob) payloadMap['image/png'] = pngBlob;
         try {
-          supportsRTF = typeof ClipboardItem !== 'undefined' &&
-                        'supports' in ClipboardItem &&
-                        ClipboardItem.supports &&
-                        ClipboardItem.supports('text/rtf');
-        } catch(_) { supportsRTF = false; }
-
-        const payloadMap = { ...basePayload };
-        if (supportsRTF) {
-          payloadMap['text/rtf'] = new Blob([rtfDoc], { type: 'text/rtf' });
-        }
-
-        try {
-          window.focus();
           await navigator.clipboard.write([new ClipboardItem(payloadMap)]);
-        } catch (errMulti) {
-          // Fallback 1: rich HTML via execCommand on contenteditable
-          window.focus();
-          if (!copyRichHTMLFallback(htmlWithFragments)) {
-            // Fallback 2: copy picture only (so you still get the graphics)
-            if (!(await copyImageOnly(pngBlob))) {
-              // Final fallback: plain text
-              if (!copyPlainTextFallback(plain)) {
-                throw errMulti;
-              }
-              alert('📋 Plain-text summary copied. Try Paste Special > HTML if available.');
-              return;
-            }
-            alert('🖼️ Dashboard image copied. If HTML paste is blocked, paste the image into your email.');
-            return;
-          }
-        }
+          alert('✅ Email body copied. If HTML is blocked, try Paste Special or use the PNG.');
+          return;
+        } catch(__) {}
       }
+    }
 
-      alert('✅ Email body (HTML) copied.\nIf Outlook drops the image, try Paste Special > HTML or use the copied PNG.');
+    // Fallbacks
+    if (copyRichHTMLFallback(htmlWithFragments)) {
+      alert('✅ Email body (HTML) copied.');
+    } else if (pngBlob && await copyImageOnly(pngBlob)) {
+      alert('🖼️ Dashboard image copied. Paste it into your email.');
+    } else if (copyPlainTextFallback(plain)) {
+      alert('📋 Plain-text summary copied.');
     } else {
-      // No Clipboard API: try rich HTML fallback, then image, then plain text
-      window.focus();
-      if (copyRichHTMLFallback(htmlWithFragments)) {
-        alert('✅ Email body (HTML) copied.');
-      } else if (await copyImageOnly(pngBlob)) {
-        alert('🖼️ Dashboard image copied. Paste it into your email.');
-      } else if (copyPlainTextFallback(plain)) {
-        alert('📋 Plain-text summary copied to clipboard.\nHTML copy is not supported in this browser.');
-      } else {
-        showError('Failed to copy to clipboard.');
-      }
+      showError('Failed to copy to clipboard.');
     }
   } catch(e) {
     console.error(e);
-    
-    // Try to restore hidden export section
     try {
       const exportSection = Array.from(gid('dashboard')?.querySelectorAll('.section') || [])
         .find(sec => /Export Options/i.test(sec.querySelector('.title')?.textContent || ''));
       if (exportSection) exportSection.style.display = '';
-    } catch(_e){}
-
+    } catch(_){}
     showError('Failed to copy dashboard: ' + e.message);
   }
 }
 
-// Add: Export PDF function
-async function exportPDF(){
+// NEW: Save Dashboard as PNG (attach to Outlook)
+async function exportPNG(){
   try{
     const node = gid('dashboard');
     if (!node) return showError('Dashboard not found.');
-    const canvas = await html2canvas(node, { scale: 2, useCORS: true });
-    const imgData = canvas.toDataURL('image/png');
-
-    const { jsPDF } = window.jspdf;
-    const pdf = new jsPDF({ orientation: 'l', unit: 'pt', format: 'a4' });
-    const pageW = pdf.internal.pageSize.getWidth();
-    const pageH = pdf.internal.pageSize.getHeight();
-
-    const imgW = pageW;
-    const imgH = canvas.height * (imgW / canvas.width);
-    const drawH = Math.min(imgH, pageH);
-
-    pdf.addImage(imgData, 'PNG', 0, 0, imgW, drawH, undefined, 'FAST');
-    pdf.save('release-dashboard.pdf');
+    const canvas = await html2canvas(node, { scale: 2, useCORS: true, backgroundColor:'#ffffff' });
+    canvas.toBlob(blob => {
+      if (!blob) return showError('PNG export failed.');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'release-dashboard.png';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(a.href);
+    }, 'image/png', 1.0);
   }catch(e){
     console.error(e);
-    showError('Failed to export PDF.');
+    showError('Failed to export PNG.');
+  }
+}
+
+// NEW: Download a ready-to-send .eml draft with inline (CID) image for Outlook
+async function downloadEML(){
+  try{
+    const node = gid('dashboard');
+    if (!node) return showError('Dashboard not found.');
+    const canvas = await html2canvas(node, { scale: 2, useCORS: true, backgroundColor:'#ffffff' });
+    const dataURL = canvas.toDataURL('image/png', 1.0);
+    const base64PNG = dataURL.split(',')[1] || '';
+
+    const now = new Date();
+    const rel = metrics.releaseInfo || null;
+    const subject = `Release Dashboard${rel && rel.name ? ` — ${rel.name}` : ''} (${now.toLocaleDateString()})`;
+
+    // Short HTML body with inline CID reference
+    const htmlBody = `
+<!DOCTYPE html>
+<html><body style="font-family:Segoe UI,Arial,sans-serif;color:#111827">
+  <p>Hi,</p>
+  <p>Please find the latest Release Dashboard below (inline). A PDF/PNG can also be attached if needed.</p>
+  ${rel ? `<p><b>Release:</b> ${rel.name} • <b>Owner:</b> ${rel.owner}</p>` : ''}
+  <img src="cid:dashboard.png" alt="Release Dashboard" style="max-width:100%;height:auto;border:1px solid #e5e7eb;border-radius:8px;margin-top:8px"/>
+  <p style="color:#6b7280">Generated on ${now.toLocaleString()}</p>
+</body></html>`.trim();
+
+    const boundary = '----=_Part_' + Date.now();
+    const crlf = '\r\n';
+
+    const eml =
+      [
+        'X-Unsent: 1',
+        'MIME-Version: 1.0',
+        `Date: ${now.toUTCString()}`,
+        'From: ',
+        'To: ',
+        `Subject: ${subject}`,
+        `Content-Type: multipart/related; type="text/html"; boundary="${boundary}"`,
+        '',
+        `--${boundary}`,
+        'Content-Type: text/html; charset=UTF-8',
+        'Content-Transfer-Encoding: 7bit',
+        '',
+        htmlBody,
+        '',
+        `--${boundary}`,
+        'Content-Type: image/png; name="dashboard.png"',
+        'Content-Transfer-Encoding: base64',
+        'Content-ID: <dashboard.png>',
+        'Content-Disposition: inline; filename="dashboard.png"',
+        '',
+        base64PNG.replace(/(.{76})/g, '$1' + crlf), // fold lines
+        '',
+        `--${boundary}--`,
+        ''
+      ].join(crlf);
+
+    const blob = new Blob([eml], { type: 'message/rfc822' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'release-dashboard.eml';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
+
+    alert('📥 Downloaded .eml. Open it in Outlook, edit recipients, and send.');
+  }catch(e){
+    console.error(e);
+    showError('Failed to build .eml file.');
   }
 }
 </script>
-</body>
-</html>
