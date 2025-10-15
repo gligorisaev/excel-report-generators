@@ -1089,6 +1089,38 @@ function calculateMetrics(data){
       scheduleVariance,
       onTrackText: scheduleVariance >= -10 ? 'On Track' : 'Behind'
     };
+  } else {
+    // Fallback when Release report is missing or dates are not provided
+    // 1) Pick most common release name across all uploaded rows
+    const nameCount = {};
+    (stories||[]).forEach(s => { const n=(s.releaseName||'').trim(); if(n) nameCount[n]=(nameCount[n]||0)+1; });
+    (testCases||[]).forEach(tc => { const n=(tc.releaseName||'').trim(); if(n) nameCount[n]=(nameCount[n]||0)+1; });
+    (validExec||[]).forEach(e => { const n=(e.releaseName||'').trim(); if(n) nameCount[n]=(nameCount[n]||0)+1; });
+    const fallbackName = Object.keys(nameCount).sort((a,b)=> (nameCount[b]-nameCount[a]))[0] || (release?.name || '');
+
+    // 2) Derive actual start/end from earliest/latest dates in data (best-effort)
+    const dateBucket = [];
+    (stories||[]).forEach(s => { const d=parseDMY(s.createdDate); if(d) dateBucket.push(d); });
+    (testCases||[]).forEach(tc => { const d=parseDMY(tc.tcCreatedDate); if(d) dateBucket.push(d); });
+    (validExec||[]).forEach(e => { const d=parseDMY(e.editDate); if(d) dateBucket.push(d); });
+
+    const minDate = dateBucket.length ? new Date(Math.min(...dateBucket.map(d=>d.getTime()))) : null;
+    const maxDate = dateBucket.length ? new Date(Math.max(...dateBucket.map(d=>d.getTime()))) : null;
+
+    releaseInfo = {
+      name: fallbackName || 'Release',
+      owner: release?.owner || '',
+      createdBy: release?.createdBy || '',
+      plannedRangeText: '-',                // unknown without Release report
+      actualStartText: fmtDate(minDate || release?._actualStart || ''),
+      actualEndText: fmtDate(maxDate || release?._actualEnd || ''),
+      keyDeliverables: release?.keyDeliverables || '-',
+      objectives: release?.objectives || '-',
+      daysRemaining: '-',                   // cannot compute without planned end
+      timelineProgress: 0,                  // cannot compute without planned dates
+      scheduleVariance: 0,
+      onTrackText: 'Unknown'
+    };
   }
 
   return {
