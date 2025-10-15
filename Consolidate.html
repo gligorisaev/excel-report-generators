@@ -186,8 +186,9 @@
     log(`Starting consolidation of ${files.length} file(s) ...`);
 
     // Storage
-    const storyByKey = new Map();   // storyKey -> { slice:[], raw:[], headers:[] }
-    const tcList = [];              // [{ tcKey, tcName, storyKey, slice:[], raw:[], headers:[] }]
+    // CHANGED: index stories by number, by Stab.* code, and by normalized story name
+    const storyIndex = { byNumber:new Map(), byStab:new Map(), byName:new Map() };
+    const tcList = [];              // [{ tcKey, tcName, storyName, stab, slice:[], ... }]
     const execByTC = new Map();     // tcKey -> [ slice[] ]
     const defByTC  = new Map();     // tcKey -> [ slice[] ]
     let storyHdrSel = null, tcHdrSel = null, execHdrSel = null, defHdrSel = null;
@@ -195,10 +196,15 @@
     // Helpers
     const empty = (n) => Array(n).fill('');
     const idxSlice = (arr, from, toIncl) => arr.slice(from, toIncl + 1);
-    const addMapArr = (map, key, val) => { if (!map.has(key)) map.set(key, []); map.get(key).push(val); };
+    const addMapArr = (map, key, val) => { if (!key) return; if (!map.has(key)) map.set(key, []); map.get(key).push(val); };
     const norm = s => String(s||'').trim();
+    const normName = s => norm(s).toLowerCase();
+    const extractStab = s => {
+      const m = String(s||'').match(/Stab\.\d+/i);
+      return m ? m[0] : '';
+    };
 
-    // Extract a story key from a row/header map
+    // Extract a story key from a row/header map (kept for compatibility)
     function deriveStoryKey(row, hmap){
       const num = getVal(row, hmap, ['Story Number']);
       if (num) return num;
@@ -237,22 +243,24 @@
         if (trimEmpty.checked && isBlankRow(row)) continue;
 
         if (type === 'stories'){
-          // Select A-J (0..9)
+          // Select A-J (0..9) and index by multiple keys
           const sel = idxSlice(row, 0, 9);
-          const skey = deriveStoryKey(row, hmap);
-          if (!skey) continue;
-          storyByKey.set(skey, { slice: sel, raw: row, headers });
+          const num = getVal(row, hmap, ['Story Number']);
+          const sname = getVal(row, hmap, ['Story: Story Name','Story Name','Story']);
+          const stab = extractStab(sname);
+          const rec = { slice: sel, raw: row, headers, num: norm(num), name: norm(sname), stab: stab };
+          if (rec.num) storyIndex.byNumber.set(rec.num, rec);
+          if (rec.stab) storyIndex.byStab.set(rec.stab, rec);
+          if (rec.name) storyIndex.byName.set(normName(rec.name), rec);
           if (!storyHdrSel) storyHdrSel = idxSlice(headers, 0, 9);
         } else if (type === 'testcases'){
           // Select A-G (0..6)
           const sel = idxSlice(row, 0, 6);
           const { tcKey, tcName } = deriveTC(row, hmap);
           if (!tcKey) continue;
-          // Map TC to Story via story name in TC report
           const sname = getVal(row, hmap, ['Story: Story Name','Story Name','Story']);
-          const m = (sname||'').match(/Stab\.\d+/i);
-          const skey = m ? m[0] : norm(sname);
-          tcList.push({ tcKey, tcName, storyKey: skey || '', slice: sel, raw: row, headers });
+          const stab = extractStab(sname);
+          tcList.push({ tcKey, tcName, storyName: norm(sname), stab, slice: sel, raw: row, headers });
           if (!tcHdrSel) tcHdrSel = idxSlice(headers, 0, 6);
         } else if (type === 'executions'){
           // Select E-K (4..10), key by test case name in column "Test Case"
@@ -295,7 +303,12 @@
     // Compose rows: for each Test Case, cross-join execs and defects; ensure at least one row
     const outRows = [];
     tcList.forEach(tc => {
-      const storySlice = storyByKey.get(tc.storyKey)?.slice || empty(storyLen);
+      // CHANGED: resolve story record by Stab.* first, then by normalized name
+      let sRec = null;
+      if (tc.stab && storyIndex.byStab.has(tc.stab)) sRec = storyIndex.byStab.get(tc.stab);
+      else if (tc.storyName && storyIndex.byName.has(normName(tc.storyName))) sRec = storyIndex.byName.get(normName(tc.storyName));
+      const storySlice = sRec ? sRec.slice : empty(storyLen);
+
       const execs = execByTC.get(tc.tcName) || execByTC.get(tc.tcKey) || [];
       const defs  = defByTC.get(tc.tcName)  || defByTC.get(tc.tcKey)  || [];
 
