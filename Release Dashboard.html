@@ -386,8 +386,8 @@
     <div class="section">
       <div class="title">📤 Export Options</div>
       <div class="actions">
-        <!-- Removed: Copy Email Body, Save PNG, Download .eml -->
-        <button class="btn" onclick="exportPDF()">📄 Export PDF</button>
+        <!-- Replaced: PDF export -->
+        <button class="btn" onclick="exportHTML()">💾 Export HTML</button>
       </div>
     </div>
   </div>
@@ -1455,83 +1455,59 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-// Add: PDF export (captures dashboard, paginates to A4)
-async function exportPDF(){
+// New: Export a standalone HTML snapshot of the dashboard with release name in filename
+function exportHTML(){
   try{
-    const { jsPDF } = window.jspdf || {};
-    const dashboard = gid('dashboard');
-    if (!dashboard) return showError('Dashboard not found.');
+    // Build safe filename from release name
+    const relName = (metrics && metrics.releaseInfo && metrics.releaseInfo.name) ? String(metrics.releaseInfo.name).trim() : 'Release';
+    const baseName = (relName ? relName : 'Release') + ' Dashboard';
+    const fileName = (baseName.replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, ' ').trim() || 'Release Dashboard') + '.html';
 
-    // Hide Export section, expand chart bodies for full capture
-    const exportSection = Array.from(dashboard.querySelectorAll('.section'))
-      .find(sec => /Export Options/i.test(sec.querySelector('.title')?.textContent || ''));
-    const exportPrevDisplay = exportSection ? exportSection.style.display : undefined;
-    if (exportSection) exportSection.style.display = 'none';
-
-    const chartBodies = dashboard.querySelectorAll('.chart-body');
-    const originalStyles = [];
-    chartBodies.forEach((el, index) => {
-      originalStyles[index] = {
-        maxHeight: el.style.maxHeight,
-        overflow: el.style.overflow,
-        height: el.style.height
-      };
-      el.style.maxHeight = 'none';
-      el.style.overflow = 'visible';
-      el.style.height = 'auto';
+    // Clone the entire container, remove Upload and Export sections
+    const container = document.querySelector('.container')?.cloneNode(true);
+    if (!container) return showError('Container not found.');
+    const upload = container.querySelector('.upload'); if (upload) upload.remove();
+    Array.from(container.querySelectorAll('.section')).forEach(sec=>{
+      const title = sec.querySelector('.title')?.textContent || '';
+      if (/Export Options/i.test(title)) sec.remove();
     });
 
-    await new Promise(r => setTimeout(r, 100));
+    // Ensure dashboard is visible in the exported HTML
+    const dash = container.querySelector('#dashboard');
+    if (dash) dash.classList.add('show');
 
-    const canvas = await html2canvas(dashboard, {
-      scale: 2,
-      useCORS: true,
-      allowTaint: true,
-      backgroundColor: '#ffffff',
-      width: dashboard.scrollWidth,
-      height: dashboard.scrollHeight
-    });
+    // Collect inline styles (keep look-and-feel; no scripts needed)
+    const styleText = Array.from(document.querySelectorAll('style')).map(s=>s.innerHTML).join('\n');
 
-    // Restore styles
-    chartBodies.forEach((el, index) => {
-      const s = originalStyles[index] || {};
-      el.style.maxHeight = s.maxHeight;
-      el.style.overflow = s.overflow;
-      el.style.height = s.height;
-    });
-    if (exportSection) exportSection.style.display = exportPrevDisplay;
+    // Minimal standalone HTML document
+    const htmlDoc =
+`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>${baseName}</title>
+<style>
+${styleText}
+</style>
+</head>
+<body>
+${container.outerHTML}
+</body>
+</html>`;
 
-    const imgData = canvas.toDataURL('image/png', 1.0);
-
-    // Pick orientation by aspect
-    const orientation = canvas.width > canvas.height ? 'l' : 'p';
-    const pdf = new jsPDF(orientation, 'pt', 'a4');
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-
-    const margin = 20; // pt
-    const imgWidth = pageWidth - margin * 2;
-    const imgHeight = canvas.height * (imgWidth / canvas.width);
-
-    let heightLeft = imgHeight;
-    let position = margin;
-
-    // First page
-    pdf.addImage(imgData, 'PNG', margin, position, imgWidth, imgHeight);
-    heightLeft -= (pageHeight - margin * 2);
-
-    // Additional pages
-    while (heightLeft > 0) {
-      pdf.addPage();
-      position = margin - (imgHeight - heightLeft);
-      pdf.addImage(imgData, 'PNG', margin, position, imgWidth, imgHeight);
-      heightLeft -= (pageHeight - margin * 2);
-    }
-
-    pdf.save('release-dashboard.pdf');
+    // Download as .html
+    const blob = new Blob([htmlDoc], { type: 'text/html' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
   } catch(e){
     console.error(e);
-    showError('Failed to export PDF: ' + (e?.message || e));
+    showError('Failed to export HTML: ' + (e?.message || e));
   }
 }
 </script>
