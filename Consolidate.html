@@ -179,32 +179,40 @@
     return XLSX.read(buf, { type:'array', cellDates:true, raw:false });
   }
 
-  // REPLACED: consolidate into a Story-centric output
+  // REPLACED: consolidate to join reports and emit a single flattened table per Test Case
   async function consolidate(){
     clearLog();
     if (!files.length){ log('No files selected.'); return; }
-
     log(`Starting consolidation of ${files.length} file(s) ...`);
 
-    // Story aggregator
-    // rec = {
-    //   storyKey, storyName, release, sprint, owner, status,
-    //   tcCount, execTotal, pass, fail, block, inProg, notStarted,
-    //   defectTotal, sev:{Critical,High,Medium,Low}, sources:Set
-    // }
-    const byStory = new Map();
-    const addRec = (key) => {
-      if (!byStory.has(key)){
-        byStory.set(key, {
-          storyKey: key, storyName: '',
-          release: '', sprint: '', owner: '', status: '',
-          tcCount: 0, execTotal: 0, pass: 0, fail: 0, block: 0, inProg: 0, notStarted: 0,
-          defectTotal: 0, sev: { Critical:0, High:0, Medium:0, Low:0 },
-          sources: new Set()
-        });
-      }
-      return byStory.get(key);
-    };
+    // Storage
+    const storyByKey = new Map();   // storyKey -> { slice:[], raw:[], headers:[] }
+    const tcList = [];              // [{ tcKey, tcName, storyKey, slice:[], raw:[], headers:[] }]
+    const execByTC = new Map();     // tcKey -> [ slice[] ]
+    const defByTC  = new Map();     // tcKey -> [ slice[] ]
+    let storyHdrSel = null, tcHdrSel = null, execHdrSel = null, defHdrSel = null;
+
+    // Helpers
+    const empty = (n) => Array(n).fill('');
+    const idxSlice = (arr, from, toIncl) => arr.slice(from, toIncl + 1);
+    const addMapArr = (map, key, val) => { if (!map.has(key)) map.set(key, []); map.get(key).push(val); };
+    const norm = s => String(s||'').trim();
+
+    // Extract a story key from a row/header map
+    function deriveStoryKey(row, hmap){
+      const num = getVal(row, hmap, ['Story Number']);
+      if (num) return num;
+      const sname = getVal(row, hmap, ['Story: Story Name','Story Name','Story']);
+      const m = (sname||'').match(/Stab\.\d+/i);
+      return m ? m[0] : norm(sname) || '';
+    }
+    // Extract a test case key and name
+    function deriveTC(row, hmap){
+      const name = getVal(row, hmap, ['Test Case: Test Case Name','Test Case','Test Case Name']);
+      const num  = getVal(row, hmap, ['Test Case Number']);
+      const tcKey = norm(name || num);
+      return { tcKey, tcName: norm(name), tcNum: norm(num) };
+    }
 
     for (const file of files){
       log(`\nReading: ${file.name}`);
@@ -216,107 +224,114 @@
       if (!sheetName){ log('  ! No sheets found. Skipping.'); continue; }
       const ws = wb.Sheets[sheetName];
       const aoa = XLSX.utils.sheet_to_json(ws, { header:1, raw:false, defval:'' });
-      const hdrRowIdx = findHeaderRow(aoa);
-      if (hdrRowIdx < 0){ log('  ! No non-empty header row found. Skipping.'); continue; }
+      const hdrRow = findHeaderRow(aoa);
+      if (hdrRow < 0){ log('  ! No non-empty header row found. Skipping.'); continue; }
 
-      const headers = (aoa[hdrRowIdx] || []).map(h => (h==null?'':String(h)));
+      const headers = (aoa[hdrRow] || []).map(h => (h==null?'':String(h)));
       const hmap = buildRowMap(headers);
       const type = detectType(headers);
       log(`  • Detected type: ${type}`);
 
-      for (let r = hdrRowIdx+1; r < aoa.length; r++){
+      for (let r = hdrRow+1; r < aoa.length; r++){
         const row = aoa[r] || [];
         if (trimEmpty.checked && isBlankRow(row)) continue;
 
-        // Derive story
-        const { storyKey, storyName } = deriveStory(row, hmap);
-        if (!storyKey || storyKey === 'Unknown Story') continue;
-        const rec = addRec(storyKey);
-        rec.storyName = rec.storyName || storyName;
-        rec.sources.add(file.name);
-
-        // Common meta where available
-        rec.release = rec.release || getVal(row, hmap, ['Release Name','Release: Release Name']);
-        rec.sprint  = rec.sprint  || getVal(row, hmap, ['Sprint','Sprint Name']);
-        rec.owner   = rec.owner   || getVal(row, hmap, ['Story Owner']);
-        rec.status  = rec.status  || getVal(row, hmap, ['Story Status']);
-
-        // Type-specific aggregation
         if (type === 'stories'){
-          // Prefer counts from story report when provided
-          const tc = getVal(row, hmap, ['# Total Test Cases']); if (tc) rec.tcCount = Math.max(rec.tcCount, Number(tc)||rec.tcCount);
-          const td = getVal(row, hmap, ['#Total Defects']);     if (td) rec.defectTotal = Math.max(rec.defectTotal, Number(td)||rec.defectTotal);
+          // Select A-J (0..9)
+          const sel = idxSlice(row, 0, 9);
+          const skey = deriveStoryKey(row, hmap);
+          if (!skey) continue;
+          storyByKey.set(skey, { slice: sel, raw: row, headers });
+          if (!storyHdrSel) storyHdrSel = idxSlice(headers, 0, 9);
         } else if (type === 'testcases'){
-          // Count each TC row
-          const tcName = getVal(row, hmap, ['Test Case: Test Case Name','Test Case Number']);
-          if (tcName) rec.tcCount += 1;
+          // Select A-G (0..6)
+          const sel = idxSlice(row, 0, 6);
+          const { tcKey, tcName } = deriveTC(row, hmap);
+          if (!tcKey) continue;
+          // Map TC to Story via story name in TC report
+          const sname = getVal(row, hmap, ['Story: Story Name','Story Name','Story']);
+          const m = (sname||'').match(/Stab\.\d+/i);
+          const skey = m ? m[0] : norm(sname);
+          tcList.push({ tcKey, tcName, storyKey: skey || '', slice: sel, raw: row, headers });
+          if (!tcHdrSel) tcHdrSel = idxSlice(headers, 0, 6);
         } else if (type === 'executions'){
-          const status = (getVal(row, hmap, ['Status']) || '').toLowerCase();
-          if (!status) continue;
-          rec.execTotal += 1;
-          if (status.includes('pass')) rec.pass += 1;
-          else if (status.includes('fail')) rec.fail += 1;
-          else if (status.includes('block')) rec.block += 1;
-          else if (status.includes('progress')) rec.inProg += 1;
-          else if (status.includes('not started')) rec.notStarted += 1;
+          // Select E-K (4..10), key by test case name in column "Test Case"
+          const tcName = getVal(row, hmap, ['Test Case','Test Case Name']);
+          const key = norm(tcName);
+          if (!key) continue;
+          const sel = idxSlice(row, 4, 10);
+          addMapArr(execByTC, key, sel);
+          if (!execHdrSel) execHdrSel = idxSlice(headers, 4, 10);
         } else if (type === 'defects'){
-          rec.defectTotal += 1;
-          const sev = getVal(row, hmap, ['Severity']);
-          const sevN = (sev || 'Unknown').trim();
-          if (rec.sev[sevN] != null) rec.sev[sevN] += 1;
+          // Select E-O (4..14), key by "Test Case: Test Case Name"
+          const tcName = getVal(row, hmap, ['Test Case: Test Case Name','Test Case','Test Case Name']);
+          const key = norm(tcName);
+          if (!key) continue;
+          const sel = idxSlice(row, 4, 14);
+          addMapArr(defByTC, key, sel);
+          if (!defHdrSel) defHdrSel = idxSlice(headers, 4, 14);
         }
       }
-
       log(`  ✓ Processed "${sheetName}"`);
     }
 
-    if (byStory.size === 0){
-      log('\nNo story data collected. Nothing to export.');
+    if (!tcList.length){
+      log('\nNo Test Case rows found. Nothing to export.');
       return;
     }
 
-    // Build output AOA (grouped by Story)
+    // Build final header
+    const storyLen = (storyHdrSel||[]).length || 10;
+    const tcLen    = (tcHdrSel||[]).length    || 7;
+    const execLen  = (execHdrSel||[]).length  || 7;
+    const defLen   = (defHdrSel||[]).length   || 11;
     const header = [
-      'Story Key','Story Name','Release','Sprint','Owner','Status',
-      '# Test Cases','# Executions','Passed','Failed','Blocked','In Progress','Not Started',
-      '# Defects','Critical','High','Medium','Low'
+      ...(storyHdrSel || Array.from({length:10}, (_,i)=>`Story Col ${i+1}`)),
+      ...(tcHdrSel    || Array.from({length:7},  (_,i)=>`TC Col ${i+1}`)),
+      ...(execHdrSel  || Array.from({length:7},  (_,i)=>`Exec Col ${i+1}`)),
+      ...(defHdrSel   || Array.from({length:11}, (_,i)=>`Defect Col ${i+1}`))
     ];
-    if (keepFileCol.checked) header.push('source_files');
 
-    const rows = [];
-    byStory.forEach(rec => {
-      rows.push([
-        rec.storyKey, rec.storyName, rec.release, rec.sprint, rec.owner, rec.status,
-        rec.tcCount, rec.execTotal, rec.pass, rec.fail, rec.block, rec.inProg, rec.notStarted,
-        rec.defectTotal, rec.sev.Critical||0, rec.sev.High||0, rec.sev.Medium||0, rec.sev.Low||0,
-        ...(keepFileCol.checked ? [Array.from(rec.sources).join('; ')] : [])
-      ]);
+    // Compose rows: for each Test Case, cross-join execs and defects; ensure at least one row
+    const outRows = [];
+    tcList.forEach(tc => {
+      const storySlice = storyByKey.get(tc.storyKey)?.slice || empty(storyLen);
+      const execs = execByTC.get(tc.tcName) || execByTC.get(tc.tcKey) || [];
+      const defs  = defByTC.get(tc.tcName)  || defByTC.get(tc.tcKey)  || [];
+
+      const execList = execs.length ? execs : [empty(execLen)];
+      const defList  = defs.length  ? defs  : [empty(defLen)];
+
+      execList.forEach(ex => {
+        defList.forEach(df => {
+          outRows.push([
+            ...storySlice,
+            ...tc.slice,
+            ...ex,
+            ...df
+          ]);
+        });
+      });
     });
 
-    // Sort by Release > Sprint > Story Key for readability
-    rows.sort((a,b)=>{
-      return String(a[2]||'').localeCompare(String(b[2]||'')) ||
-             String(a[3]||'').localeCompare(String(b[3]||'')) ||
-             String(a[0]||'').localeCompare(String(b[0]||''), undefined, { numeric:true });
-    });
+    if (!outRows.length){
+      log('\nNo rows to export after joining.');
+      return;
+    }
 
-    const outAOA = [header, ...rows];
+    // Build worksheet and autosize
+    const outAOA = [header, ...outRows];
     const outWS = XLSX.utils.aoa_to_sheet(outAOA);
-
-    // Autosize (approximate)
     const colWidths = header.map((h, i) => {
-      const maxLen = Math.max(
-        String(h||'').length,
-        ...rows.map(r => String(r[i] ?? '').length)
-      );
+      const maxLen = Math.max(String(h||'').length, ...outRows.map(r => String(r[i] ?? '').length));
       return { wch: Math.min(Math.max(8, maxLen + 2), 60) };
     });
     outWS['!cols'] = colWidths;
 
+    // Save
     const outWB = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(outWB, outWS, 'By Story');
-
-    const filename = 'Consolidated_by_Story.xls';
+    XLSX.utils.book_append_sheet(outWB, outWS, 'Merged');
+    const filename = 'Consolidated_Merged.xls';
     try {
       XLSX.writeFile(outWB, filename, { bookType:'xls' });
       log(`\n✅ Done. File downloaded: ${filename}`);
