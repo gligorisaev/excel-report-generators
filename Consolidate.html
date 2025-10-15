@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Excel Consolidator — 4 Reports → 1 XLS</title>
+
+  <!-- SheetJS (XLSX) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"
+          integrity="sha512-r22gChDnGvBylk90+2e/ycr3RVrDi8DIOkIGNhJlKfuyQM4tIRAI062MaV8sfjQKYVGjOBaZBOA87z+IhZE9DA=="
+          crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+  <style>
+    :root{
+      --bg:#f8fafc; --card:#ffffff; --text:#111827; --muted:#6b7280; --border:#e5e7eb; --accent:#2563eb;
+    }
+    body{margin:0;padding:24px;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif;}
+    .wrap{max-width:920px;margin:0 auto;}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:14px;box-shadow:0 3px 12px rgba(16,24,40,.04);padding:18px;}
+    h1{margin:0 0 8px;font-size:22px;}
+    p{margin:6px 0;color:var(--muted)}
+    .row{display:flex;gap:12px;flex-wrap:wrap;margin-top:14px}
+    .uploader{flex:1 1 420px;border:2px dashed var(--border);border-radius:12px;padding:16px;background:#fcfcfd}
+    .uploader.drag{border-color:var(--accent);background:#eef2ff}
+    input[type="file"]{width:100%}
+    .controls{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:10px}
+    .btn{appearance:none;border:1px solid var(--border);background:var(--accent);color:#fff;border-radius:10px;padding:10px 14px;font-weight:600;cursor:pointer}
+    .btn:disabled{opacity:.5;cursor:not-allowed}
+    .pill{font-size:12px;background:#eef2ff;color:#1f2937;border:1px solid #e5e7eb;border-radius:20px;padding:6px 10px}
+    .log{margin-top:14px;background:#f9fafb;border:1px solid var(--border);border-radius:10px;padding:10px;height:170px;overflow:auto;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;color:#111827}
+    .small{font-size:12px;color:var(--muted)}
+    label.checkbox{display:inline-flex;align-items:center;gap:8px;font-size:14px;color:#374151}
+    .badge{display:inline-block;background:#10b981;color:#fff;border-radius:8px;padding:2px 8px;font-size:12px;margin-left:8px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Consolidate 4 Excel Reports → 1 <span class="badge">.xls</span></h1>
+      <p>Upload your four reports (Stories, Test Cases, Test Executions, Defects). The tool groups data by Story and exports a single Excel file.</p>
+
+      <div class="row">
+        <div id="drop" class="uploader">
+          <input id="fileInput" type="file" accept=".xls,.xlsx" multiple />
+          <p class="small">Tip: You can also drag &amp; drop the 4 files here.</p>
+        </div>
+        <div class="controls">
+          <label class="checkbox">
+            <input id="trimEmpty" type="checkbox" checked />
+            Remove blank rows
+          </label>
+          <label class="checkbox">
+            <input id="keepFileCol" type="checkbox"/>
+            Add source filename column
+          </label>
+          <button id="goBtn" class="btn" disabled>Consolidate &amp; Download XLS</button>
+          <span id="count" class="pill">0 files selected</span>
+        </div>
+      </div>
+
+      <div id="log" class="log" aria-live="polite"></div>
+      <p class="small">Notes: The first non-empty row is treated as header for each sheet. Columns are merged by header name (case-insensitive). Cells are trimmed.</p>
+    </div>
+  </div>
+
+<script>
+(function(){
+  const input = document.getElementById('fileInput');
+  const goBtn = document.getElementById('goBtn');
+  const count = document.getElementById('count');
+  const logEl = document.getElementById('log');
+  const trimEmpty = document.getElementById('trimEmpty');
+  const keepFileCol = document.getElementById('keepFileCol');
+  const drop = document.getElementById('drop');
+
+  let files = [];
+
+  function log(msg){ logEl.textContent += msg + "\n"; logEl.scrollTop = logEl.scrollHeight; }
+  function clearLog(){ logEl.textContent = ""; }
+
+  function updateCount(){
+    count.textContent = `${files.length} file${files.length===1?'':'s'} selected`;
+    goBtn.disabled = files.length === 0;
+  }
+
+  input.addEventListener('change', e => {
+    files = Array.from(e.target.files || []);
+    clearLog();
+    if (files.length) {
+      log(`Selected ${files.length} file(s):`);
+      files.forEach(f => log(` • ${f.name}`));
+    }
+    updateCount();
+  });
+
+  // Drag & drop
+  ;['dragenter','dragover'].forEach(evt =>
+    drop.addEventListener(evt, e => { e.preventDefault(); e.stopPropagation(); drop.classList.add('drag'); })
+  );
+  ;['dragleave','drop'].forEach(evt =>
+    drop.addEventListener(evt, e => { e.preventDefault(); e.stopPropagation(); drop.classList.remove('drag'); })
+  );
+  drop.addEventListener('drop', e => {
+    files = Array.from(e.dataTransfer.files || []).filter(f => /\.(xlsx|xls)$/i.test(f.name));
+    input.value = ''; // reset <input> to reflect new selection if needed
+    clearLog();
+    if (files.length) {
+      log(`Dropped ${files.length} file(s):`);
+      files.forEach(f => log(` • ${f.name}`));
+    } else {
+      log('No Excel files detected in drop.');
+    }
+    updateCount();
+  });
+
+  function normalizeHeader(h){
+    if (h == null) return '';
+    return String(h).trim().replace(/\s+/g,' ').toLowerCase();
+  }
+
+  function findHeaderRow(aoa){
+    for (let i=0;i<aoa.length;i++){
+      const row = aoa[i] || [];
+      const nonEmpty = row.filter(v => v!=null && String(v).trim()!=='').length;
+      if (nonEmpty >= 1) return i;
+    }
+    return -1;
+  }
+
+  function buildRowMap(headers){
+    const map = {};
+    headers.forEach((h,idx)=>{ map[normalizeHeader(h)] = idx; });
+    return map;
+  }
+
+  function isBlankRow(row){
+    return row.every(v => v==null || String(v).trim()==='');
+  }
+
+  // NEW: detect report type from header row
+  function detectType(headers){
+    const hs = headers.map(normalizeHeader);
+    const has = s => hs.some(h => h.includes(s));
+    const all = (...arr) => arr.every(a => has(a));
+    if (all('defect number','defect name')) return 'defects';
+    if ((has('test case execution') || has('age (in days)')) && all('status')) return 'executions';
+    if ((has('test case number') || has('test case: test case name')) && (has('story: story name') || has('story name'))) return 'testcases';
+    if ((has('story number') || has('story: story name') || has('story name')) && (has('story status') || has('story: story name') || has('story number'))) return 'stories';
+    return 'unknown';
+  }
+
+  // NEW: safe cell getter by aliases
+  function getVal(row, map, aliases){
+    for (const a of aliases){
+      const key = normalizeHeader(a);
+      const idx = map[key];
+      if (idx != null){
+        const v = row[idx];
+        if (v != null && String(v).trim() !== '') return String(v).trim();
+      }
+    }
+    return '';
+  }
+
+  // NEW: derive story key and name from a row
+  function deriveStory(row, map){
+    const storyNum = getVal(row, map, ['Story Number']);
+    const storyName = getVal(row, map, ['Story: Story Name','Story Name','Story']);
+    let key = storyNum || '';
+    if (!key){
+      const m = (storyName || '').match(/Stab\.\d+/i);
+      key = m ? m[0] : (storyName || 'Unknown Story');
+    }
+    return { storyKey: key, storyName: storyName || storyNum || key };
+  }
+
+  async function readWorkbook(file){
+    const buf = await file.arrayBuffer();
+    return XLSX.read(buf, { type:'array', cellDates:true, raw:false });
+  }
+
+  // REPLACED: consolidate into a Story-centric output
+  async function consolidate(){
+    clearLog();
+    if (!files.length){ log('No files selected.'); return; }
+
+    log(`Starting consolidation of ${files.length} file(s) ...`);
+
+    // Story aggregator
+    // rec = {
+    //   storyKey, storyName, release, sprint, owner, status,
+    //   tcCount, execTotal, pass, fail, block, inProg, notStarted,
+    //   defectTotal, sev:{Critical,High,Medium,Low}, sources:Set
+    // }
+    const byStory = new Map();
+    const addRec = (key) => {
+      if (!byStory.has(key)){
+        byStory.set(key, {
+          storyKey: key, storyName: '',
+          release: '', sprint: '', owner: '', status: '',
+          tcCount: 0, execTotal: 0, pass: 0, fail: 0, block: 0, inProg: 0, notStarted: 0,
+          defectTotal: 0, sev: { Critical:0, High:0, Medium:0, Low:0 },
+          sources: new Set()
+        });
+      }
+      return byStory.get(key);
+    };
+
+    for (const file of files){
+      log(`\nReading: ${file.name}`);
+      let wb;
+      try { wb = await readWorkbook(file); }
+      catch(err){ log(`  ! Failed to read: ${err.message || err}`); continue; }
+
+      const sheetName = wb.SheetNames[0];
+      if (!sheetName){ log('  ! No sheets found. Skipping.'); continue; }
+      const ws = wb.Sheets[sheetName];
+      const aoa = XLSX.utils.sheet_to_json(ws, { header:1, raw:false, defval:'' });
+      const hdrRowIdx = findHeaderRow(aoa);
+      if (hdrRowIdx < 0){ log('  ! No non-empty header row found. Skipping.'); continue; }
+
+      const headers = (aoa[hdrRowIdx] || []).map(h => (h==null?'':String(h)));
+      const hmap = buildRowMap(headers);
+      const type = detectType(headers);
+      log(`  • Detected type: ${type}`);
+
+      for (let r = hdrRowIdx+1; r < aoa.length; r++){
+        const row = aoa[r] || [];
+        if (trimEmpty.checked && isBlankRow(row)) continue;
+
+        // Derive story
+        const { storyKey, storyName } = deriveStory(row, hmap);
+        if (!storyKey || storyKey === 'Unknown Story') continue;
+        const rec = addRec(storyKey);
+        rec.storyName = rec.storyName || storyName;
+        rec.sources.add(file.name);
+
+        // Common meta where available
+        rec.release = rec.release || getVal(row, hmap, ['Release Name','Release: Release Name']);
+        rec.sprint  = rec.sprint  || getVal(row, hmap, ['Sprint','Sprint Name']);
+        rec.owner   = rec.owner   || getVal(row, hmap, ['Story Owner']);
+        rec.status  = rec.status  || getVal(row, hmap, ['Story Status']);
+
+        // Type-specific aggregation
+        if (type === 'stories'){
+          // Prefer counts from story report when provided
+          const tc = getVal(row, hmap, ['# Total Test Cases']); if (tc) rec.tcCount = Math.max(rec.tcCount, Number(tc)||rec.tcCount);
+          const td = getVal(row, hmap, ['#Total Defects']);     if (td) rec.defectTotal = Math.max(rec.defectTotal, Number(td)||rec.defectTotal);
+        } else if (type === 'testcases'){
+          // Count each TC row
+          const tcName = getVal(row, hmap, ['Test Case: Test Case Name','Test Case Number']);
+          if (tcName) rec.tcCount += 1;
+        } else if (type === 'executions'){
+          const status = (getVal(row, hmap, ['Status']) || '').toLowerCase();
+          if (!status) continue;
+          rec.execTotal += 1;
+          if (status.includes('pass')) rec.pass += 1;
+          else if (status.includes('fail')) rec.fail += 1;
+          else if (status.includes('block')) rec.block += 1;
+          else if (status.includes('progress')) rec.inProg += 1;
+          else if (status.includes('not started')) rec.notStarted += 1;
+        } else if (type === 'defects'){
+          rec.defectTotal += 1;
+          const sev = getVal(row, hmap, ['Severity']);
+          const sevN = (sev || 'Unknown').trim();
+          if (rec.sev[sevN] != null) rec.sev[sevN] += 1;
+        }
+      }
+
+      log(`  ✓ Processed "${sheetName}"`);
+    }
+
+    if (byStory.size === 0){
+      log('\nNo story data collected. Nothing to export.');
+      return;
+    }
+
+    // Build output AOA (grouped by Story)
+    const header = [
+      'Story Key','Story Name','Release','Sprint','Owner','Status',
+      '# Test Cases','# Executions','Passed','Failed','Blocked','In Progress','Not Started',
+      '# Defects','Critical','High','Medium','Low'
+    ];
+    if (keepFileCol.checked) header.push('source_files');
+
+    const rows = [];
+    byStory.forEach(rec => {
+      rows.push([
+        rec.storyKey, rec.storyName, rec.release, rec.sprint, rec.owner, rec.status,
+        rec.tcCount, rec.execTotal, rec.pass, rec.fail, rec.block, rec.inProg, rec.notStarted,
+        rec.defectTotal, rec.sev.Critical||0, rec.sev.High||0, rec.sev.Medium||0, rec.sev.Low||0,
+        ...(keepFileCol.checked ? [Array.from(rec.sources).join('; ')] : [])
+      ]);
+    });
+
+    // Sort by Release > Sprint > Story Key for readability
+    rows.sort((a,b)=>{
+      return String(a[2]||'').localeCompare(String(b[2]||'')) ||
+             String(a[3]||'').localeCompare(String(b[3]||'')) ||
+             String(a[0]||'').localeCompare(String(b[0]||''), undefined, { numeric:true });
+    });
+
+    const outAOA = [header, ...rows];
+    const outWS = XLSX.utils.aoa_to_sheet(outAOA);
+
+    // Autosize (approximate)
+    const colWidths = header.map((h, i) => {
+      const maxLen = Math.max(
+        String(h||'').length,
+        ...rows.map(r => String(r[i] ?? '').length)
+      );
+      return { wch: Math.min(Math.max(8, maxLen + 2), 60) };
+    });
+    outWS['!cols'] = colWidths;
+
+    const outWB = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(outWB, outWS, 'By Story');
+
+    const filename = 'Consolidated_by_Story.xls';
+    try {
+      XLSX.writeFile(outWB, filename, { bookType:'xls' });
+      log(`\n✅ Done. File downloaded: ${filename}`);
+    } catch(err){
+      log(`\n❌ Failed to write file: ${err.message || err}`);
+    }
+  }
+
+  goBtn.addEventListener('click', consolidate);
+})();
+</script>
+</body>
+</html>
