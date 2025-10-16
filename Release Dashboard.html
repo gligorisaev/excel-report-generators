@@ -647,7 +647,7 @@ function parseDefectsReport(workbook){
     if (/severity/i.test(t)) col.severity = idx;
     if (/complexity/i.test(t)) col.complexity = idx;
     if (/Days Since Last Update/i.test(t)) col.daysSinceUpdate = idx;
-    if (/Type/i.test(t)) col.type = idx;
+    if (t.includes('Type')) col.type = idx;
     if (t.includes('Created Date')) col.createdDate = idx;
     if (t.includes('Closed Date')) col.closedDate = idx;
     if (t.includes('Created By')) col.createdBy = idx;
@@ -1490,10 +1490,18 @@ document.addEventListener('DOMContentLoaded', () => {
 // New: Export a standalone HTML snapshot of the dashboard with release name in filename
 function exportHTML(){
   try{
-    // Build safe filename from release name
+    // Build safe filename from release name + timestamp
     const relName = (metrics && metrics.releaseInfo && metrics.releaseInfo.name) ? String(metrics.releaseInfo.name).trim() : 'Release';
     const baseName = (relName ? relName : 'Release') + ' Dashboard';
-    const fileName = (baseName.replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, ' ').trim() || 'Release Dashboard') + '.html';
+
+    // NEW: timestamp (local) in YYYY-MM-DD_HH-mm format
+    const d = new Date();
+    const pad = n => String(n).padStart(2,'0');
+    const ts = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}`;
+
+    // Sanitize and append timestamp
+    const safeBase = baseName.replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, ' ').trim() || 'Release Dashboard';
+    const fileName = `${safeBase} ${ts}.html`;
 
     // Clone the entire container, remove Upload and Export sections
     const container = document.querySelector('.container')?.cloneNode(true);
@@ -1518,7 +1526,7 @@ function exportHTML(){
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>${baseName}</title>
+<title>${safeBase}</title>
 <style>
 ${styleText}
 </style>
