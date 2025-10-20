@@ -262,6 +262,8 @@
             <div style="margin-bottom:6px">Passed Executions: <span id="execPassed" style="color:var(--green);font-weight:700">0</span></div>
             <div style="margin-bottom:6px">Failed Executions: <span id="execFailed" style="color:var(--red);font-weight:700">0</span></div>
             <div style="margin-bottom:6px">Blocked Executions: <span id="execBlocked" style="color:var(--orange);font-weight:700">0</span></div>
+            <!-- NEW: Tests with No Executions KPI -->
+            <div style="margin-bottom:6px">Tests with No Executions: <span id="testsNoExec" style="color:#ef4444;font-weight:700">0</span></div>
             <div>Avg Executions/Test: <span id="execPerTest" style="color:var(--orange);font-weight:700">0</span></div>
             <!-- NEW advanced KPIs -->
             <div style="margin-top:8px;border-top:1px dashed #e5e7eb;padding-top:8px">
@@ -281,6 +283,12 @@
           <div class="chart-explainer">Displays the number of test cases linked to each story.</div>
           <div class="h">📊 Test Cases by Story</div>
           <div id="testCasesByStoryChart" class="chart-body"></div>
+        </div>
+        <!-- NEW: full-width list of test cases without executions -->
+        <div class="chart" style="grid-column:1 / -1">
+          <div class="chart-explainer">Lists test cases that currently have no executions (based on uploaded Test Cases and Executions reports).</div>
+          <div class="h">🚫 Test Cases Without Executions</div>
+          <div id="noExecTestsChart" class="chart-body"></div>
         </div>
         <div class="chart">
           <div class="chart-explainer">Shows the distribution of test executions by their status (Passed, Failed, Blocked, etc.).</div>
