@@ -487,13 +487,34 @@ function detectReportType(workbook){
 
 /* Date helpers */
 function parseDMY(d){
-  if (!d) return null;
+  if (d === null || d === undefined) return null;
+  if (d instanceof Date && !isNaN(d.getTime())) {
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  }
   const s = String(d).trim();
-  const m = s.match(/^(\d{2})\.(\d{2})\.(\d{4})(?:\s+\d{2}:\d{2})?$/);
-  if (!m) return null;
-  const [_, dd, mm, yyyy] = m;
-  const dt = new Date(Number(yyyy), Number(mm)-1, Number(dd));
-  return isNaN(dt.getTime()) ? null : dt;
+  // Excel serial number (rough bounds)
+  const num = Number(s);
+  if (!Number.isNaN(num) && /^\d+(\.\d+)?$/.test(s) && num > 25569 && num < 60000) {
+    const ms = (num - 25569) * 86400 * 1000;
+    const dt = new Date(ms);
+    return new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+  }
+  // ISO yyyy-MM-dd (optionally with time)
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return new Date(+m[1], +m[2]-1, +m[3]);
+
+  // dd[./-]MM[./-]yyyy (optionally with time)
+  m = s.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})/);
+  if (m) return new Date(+m[3], +m[2]-1, +m[1]);
+
+  // dd MMM yyyy (e.g., 14 Oct 2025)
+  m = s.match(/^(\d{1,2})\s+([A-Za-z]{3,})\s+(\d{4})/);
+  if (m) {
+    const months = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+    const mi = months[m[2].slice(0,3).toLowerCase()];
+    if (mi !== undefined) return new Date(+m[3], mi, +m[1]);
+  }
+  return null;
 }
 function daysBetween(a,b){
   if (!(a instanceof Date) || !(b instanceof Date)) return 0;
@@ -504,6 +525,12 @@ function fmtDate(d){
   if (d instanceof Date && !isNaN(d.getTime())) return d.toLocaleDateString();
   const p = parseDMY(d);
   return p ? p.toLocaleDateString() : (d ? String(d) : '-');
+}
+// Helper: build planned range text with graceful fallback
+function buildRangeText(startRaw, endRaw){
+  const a = fmtDate(startRaw);
+  const b = fmtDate(endRaw);
+  return (a === '-' && b === '-') ? '-' : `${a} → ${b}`;
 }
 
 // NEW: safe HTML stripper for .xls HTML exports (links and entities)
@@ -1092,9 +1119,10 @@ function calculateMetrics(data){
       name: release.name,
       owner: release.owner,
       createdBy: release.createdBy,
-      plannedRangeText: `${fmtDate(release._plannedStart)} → ${fmtDate(release._plannedEnd)}`,
-      actualStartText: fmtDate(release._actualStart || ''),
-      actualEndText: fmtDate(release._actualEnd || ''),
+      // Use raw values for display; parser handles formatting or falls back to raw
+      plannedRangeText: buildRangeText(release.plannedStart, release.plannedEnd),
+      actualStartText: fmtDate(release.actualStart || ''),
+      actualEndText: fmtDate(release.actualEnd || ''),
       keyDeliverables: release.keyDeliverables || '-',
       objectives: release.objectives || '-',
       daysRemaining: daysRemain,
@@ -1125,8 +1153,8 @@ function calculateMetrics(data){
       owner: release?.owner || '',
       createdBy: release?.createdBy || '',
       plannedRangeText: '-',                // unknown without Release report
-      actualStartText: fmtDate(minDate || release?._actualStart || ''),
-      actualEndText: fmtDate(maxDate || release?._actualEnd || ''),
+      actualStartText: (release && release._actualStart) ? fmtDate(release._actualStart) : '-',
+      actualEndText: (release && release._actualEnd) ? fmtDate(release._actualEnd) : '-',
       keyDeliverables: release?.keyDeliverables || '-',
       objectives: release?.objectives || '-',
       daysRemaining: '-',                   // cannot compute without planned end
@@ -1192,7 +1220,7 @@ function renderDonutChart(containerId, data, colors){
 function renderChart(containerId, data){
   const el = gid(containerId); if (!el) return;
   const entries = Object.entries(data||{}).filter(([,v])=>v>0);
-  if (!entries.length){ el.innerHTML = '<div class="small" style="text-align:center;padding:20px">No data</div>'; return; }
+  if (!entries.length){ el.innerHTML = '<div class="small" style="padding:20px;text-align:center">No data</div>'; return; }
   const max = Math.max(...entries.map(([,v])=>v));
   let html = '<div style="padding:8px">';
   entries.sort((a,b)=>b[1]-a[1]).forEach(([k,v])=>{
@@ -1211,6 +1239,34 @@ function renderChart(containerId, data){
   });
   html += '</div>'; el.innerHTML = html;
 }
+// NEW: render chart including zero values (keeps entries with 0)
+function renderChartIncludingZeros(containerId, data){
+  const el = gid(containerId); if (!el) return;
+  const entries = Object.entries(data || {});
+  if (!entries.length){ el.innerHTML = '<div class="small" style="text-align:center;padding:20px">No data</div>'; return; }
+  const max = Math.max(0, ...entries.map(([,v]) => Number(v) || 0));
+  let html = '<div style="padding:8px">';
+  entries.sort((a,b)=> (b[1]-a[1])).forEach(([k,v])=>{
+    const val = Number(v) || 0;
+    const pct = max ? (val/max)*100 : 0;
+    const label = k.length>48 ? k.slice(0,48)+'…' : k;
+    html += `
+      <div style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px;gap:8px">
+          <span style="font-weight:600;color:#374151;word-break:break-word" title="${k}">${label}</span>
+          <span style="font-weight:800;color:#111827">${val}</span>
+        </div>
+        <div style="background:#e5e7eb;border-radius:6px;height:8px">
+          <div style="background:#6366f1;height:100%;width:${pct}%;border-radius:6px"></div>
+        </div>
+      </div>`;
+  });
+  html += '</div>'; el.innerHTML = html;
+}
+
+/* ADD: missing helpers used by renderDashboard */
+
+// Mini status table by assignee
 function renderExecStatusByAssigneeMini(containerId){
   const el = gid(containerId); if (!el) return;
   const executions = getValidExecutions(globalData.executions||[]);
@@ -1250,52 +1306,19 @@ function renderExecStatusByAssigneeMini(containerId){
   html += '</tbody></table></div>';
   el.innerHTML = html;
 }
-function renderDefectsTable(containerId){
-  const el = gid(containerId); if (!el) return;
- const defects = globalData.defects||[];
-  if (!defects.length){ el.innerHTML = '<div class="small" style="padding:20px;text-align:center">No defect data</div>'; return; }
-  const rows = defects.map(d=>({
-    defectNum:d.defectNum||d.defectName||'',
-    storyName:d.storyName||'',
-    createdBy:d.defectCreatedBy||'',
-    assignedTo:d.defectAssignedTo||'',
-    status:d.defectStatus||''
-  })).sort((a,b)=>String(a.defectNum).localeCompare(String(b.defectNum),undefined,{numeric:true}));
-  let html = '<div style="max-height:480px;overflow:auto;border:1px solid var(--card-border);border-radius:6px"><table><thead><tr><th>Defect Number</th><th>Story</th><th>Created By</th><th>Assigned To</th><th>Status</th></tr></thead><tbody>';
-  rows.forEach(r=>{
-    html += `<tr><td>${r.defectNum}</td><td>${r.storyName}</td><td>${r.createdBy}</td><td>${r.assignedTo}</td><td>${r.status}</td></tr>`;
-  });
-  html += '</tbody></table></div>'; el.innerHTML = html;
-}
-function renderDataQuality(){
-  const el = gid('dqContainer'); if (!el) return;
-  const { stories=[], defects=[] } = globalData;
-  const storiesWithoutTC = stories.filter(s => (s.totalTC||0)===0);
-  const openDef = defects.filter(d => {
-    const st=(d.defectStatus||'').toLowerCase();
-    return st && !(st.includes('closed')||st.includes('resolve')||st.includes('reject'));
-  }).length;
-  el.innerHTML = `
-    <div class="${storiesWithoutTC.length?'issue':'success'}" style="margin-bottom:8px">
-      ${storiesWithoutTC.length? `<b>${storiesWithoutTC.length}</b> stories without test cases` : '✅ All stories have test cases'}
-    </div>
-    <div class="${defects.length?'success':'warn'}">
 
-
-
-      ${defects.length? `<b>${openDef}</b> open defects out of <b>${defects.length}</b> total` : 'No defects uploaded'}
-    </div>`;
-}
+// Workload balance donut
 function renderTestWorkloadBalanceDonut(containerId, assigneeDist){
   const entries = Object.entries(assigneeDist||{});
-  if (!entries.length){ gid(containerId).innerHTML = '<div class="small" style="padding:20px;text-align:center">No workload data</div>'; return; }
-  const vals = entries.map(([,v])=>v);
+  const el = gid(containerId); if (!el) return;
+  if (!entries.length){ el.innerHTML = '<div class="small" style="padding:20px;text-align:center">No workload data</div>'; return; }
+  const vals = entries.map(([,v])=>Number(v)||0);
   const avg = vals.reduce((s,v)=>s+v,0)/vals.length;
   const buckets = {
     'Overloaded (>150% avg)':0,'High (125-150% avg)':0,'Balanced (75-125% avg)':0,'Low (<75% avg)':0
   };
   entries.forEach(([,v])=>{
-    const r = v/avg;
+    const r = avg ? v/avg : 0;
     if (r>1.5) buckets['Overloaded (>150% avg)']++;
     else if (r>1.25) buckets['High (125-150% avg)']++;
     else if (r>=0.75) buckets['Balanced (75-125% avg)']++;
@@ -1304,8 +1327,10 @@ function renderTestWorkloadBalanceDonut(containerId, assigneeDist){
   renderDonutChart(containerId, buckets, {
     'Overloaded (>150% avg)':'#ef4444','High (125-150% avg)':'#f59e0b','Balanced (75-125% avg)':'#10b981','Low (<75% avg)':'#6b7280'
   });
-  gid(containerId).innerHTML += `<div class="small" style="text-align:center;padding:8px;border-top:1px solid #e5e7eb">Average: <b>${avg.toFixed(1)}</b> executions/person</div>`;
+  el.innerHTML += `<div class="small" style="text-align:center;padding:8px;border-top:1px solid #e5e7eb">Average: <b>${avg.toFixed(1)}</b> executions/person</div>`;
 }
+
+// Coverage heatmap donut by sprint
 function renderTestCoverageHeatmap(containerId){
   const el = gid(containerId); if (!el) return;
   const stories = globalData.stories||[];
@@ -1330,6 +1355,46 @@ function renderTestCoverageHeatmap(containerId){
   const overall = totStories? ((withTests/totStories)*100).toFixed(1) : '0.0';
   el.innerHTML += `<div class="small" style="text-align:center;padding:8px;border-top:1px solid #e5e7eb">Overall Coverage: <b>${overall}%</b> (${withTests}/${totStories})</div>`;
 }
+
+// Defects table renderer
+function renderDefectsTable(containerId){
+  const el = gid(containerId); if (!el) return;
+  const defects = globalData.defects||[];
+  if (!defects.length){ el.innerHTML = '<div class="small" style="padding:20px;text-align:center">No defect data</div>'; return; }
+  const rows = defects.map(d=>({
+    defectNum:d.defectNum||d.defectName||'',
+    storyName:d.storyName||'',
+    createdBy:d.defectCreatedBy||'',
+    assignedTo:d.defectAssignedTo||'',
+    status:d.defectStatus||''
+  })).sort((a,b)=>String(a.defectNum).localeCompare(String(b.defectNum),undefined,{numeric:true}));
+  let html = '<div style="max-height:480px;overflow:auto;border:1px solid var(--card-border);border-radius:6px"><table><thead><tr><th>Defect Number</th><th>Story</th><th>Created By</th><th>Assigned To</th><th>Status</th></tr></thead><tbody>';
+  rows.forEach(r=>{
+    html += `<tr><td>${r.defectNum}</td><td>${r.storyName}</td><td>${r.createdBy}</td><td>${r.assignedTo}</td><td>${r.status}</td></tr>`;
+  });
+  html += '</tbody></table></div>'; el.innerHTML = html;
+}
+
+// Add: Data Quality helper used by renderDashboard
+function renderDataQuality(){
+  const el = gid('dqContainer'); if (!el) return;
+  const { stories = [], defects = [] } = globalData;
+
+  const storiesWithoutTCCount = stories.filter(s => (s.totalTC || 0) === 0).length;
+  const openDefectsCount = defects.filter(d => {
+    const st = (d.defectStatus || '').toLowerCase();
+    return st && !(st.includes('closed') || st.includes('resolve') || st.includes('reject'));
+  }).length;
+
+  el.innerHTML = `
+    <div class="${storiesWithoutTCCount ? 'issue' : 'success'}" style="margin-bottom:8px">
+      ${storiesWithoutTCCount ? `<b>${storiesWithoutTCCount}</b> stories without test cases` : '✅ All stories have test cases'}
+    </div>
+    <div class="${defects.length ? 'success' : 'warn'}">
+      ${defects.length ? `<b>${openDefectsCount}</b> open defects out of <b>${defects.length}</b> total` : 'No defects uploaded'}
+    </div>`;
+}
+
 /* RESTORED: render dashboard to update UI */
 function renderDashboard(){
   // NEW: Release Overview render
@@ -1443,21 +1508,31 @@ function renderDashboard(){
   // 5) Coverage heatmap by sprint
   renderTestCoverageHeatmap('testCoverageHeatmapChart');
 
-  // Build "Test Cases by Story"
+  // Build "Test Cases by Story" (include stories with 0 test cases)
   const tcByStory = {};
- 
-  if ((globalData.testCases||[]).length){
-    globalData.testCases.forEach(tc=>{
+  const storiesList = globalData.stories || [];
+  const tcsList = globalData.testCases || [];
+
+  if (tcsList.length){
+    // Prefill all known stories with 0
+    storiesList.forEach(s=>{
+      const key = s.storyName || s.storyNumber || 'Unknown Story';
+      if (!(key in tcByStory)) tcByStory[key] = 0;
+    });
+    // Count test cases per story (includes stories not present in stories report)
+    tcsList.forEach(tc=>{
       const key = tc.storyName || tc.storyNumber || 'Unknown Story';
-      tcByStory[key] = (tcByStory[key]||0) + 1;
+      tcByStory[key] = (tcByStory[key] || 0) + 1;
     });
   } else {
-    // Fallback to Stories’ # Total Test Cases if no separate TC report
-    (globalData.stories||[]).forEach(s=>{
-      if (s.totalTC) tcByStory[s.storyName || s.storyNumber || 'Unknown Story'] = s.totalTC;
+    // No separate TC report — use stories’ # Total Test Cases (including zeros)
+    storiesList.forEach(s=>{
+      const key = s.storyName || s.storyNumber || 'Unknown Story';
+      tcByStory[key] = Number(s.totalTC || 0);
     });
   }
-  renderChart('testCasesByStoryChart', tcByStory);
+  // Use renderer that keeps zero entries
+  renderChartIncludingZeros('testCasesByStoryChart', tcByStory);
 
   // Defects segment
   const defects = globalData.defects||[];
