@@ -460,28 +460,36 @@ function detectReportType(workbook){
   const ws = workbook.Sheets[workbook.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
   if (!rows || !rows.length) return null;
-  const header = (rows[0] || []).map(h => String(h||'').toLowerCase());
 
-  // NEW: Release report
-  if (header.some(h=>h.includes('release: release name')) &&
-      (header.some(h=>h.includes('planned start date')) || header.some(h=>h.includes('planned end date')))) {
-    return 'release';
+  const scanLimit = Math.min(rows.length, 50);
+  for (let i = 0; i < scanLimit; i++) {
+    const header = (rows[i] || []).map(h => String(h||'').toLowerCase().trim());
+    if (!header.length) continue;
+
+    // Release report
+    if (header.some(h=>h.includes('release: release name')) &&
+        (header.some(h=>h.includes('planned start date')) || header.some(h=>h.includes('planned end date')))) {
+      return 'release';
+    }
+    // Defects report
+    if (header.some(h=>h.includes('defect number')) && header.some(h=>h.includes('defect name'))) {
+      return 'defects';
+    }
+    // Executions report
+    if ((header.some(h=>h.includes('test case execution')) || header.some(h=>h.includes('age (in days)'))) &&
+        header.some(h=>h.includes('assigned to')) && header.some(h=>h.includes('status'))) {
+      return 'executions';
+    }
+    // Test Cases report
+    if ((header.some(h=>h.includes('test case number')) || header.some(h=>h.includes('test case: test case name'))) &&
+        header.some(h=>h.includes('story: story name'))) {
+      return 'testcases';
+    }
+    // Stories report
+    if (header.some(h=>h.includes('story number')) && header.some(h=>h.includes('story: story name'))) {
+      return 'stories';
+    }
   }
-
-  // Defects
-  if (header.some(h=>h.includes('defect number')) && header.some(h=>h.includes('defect name'))) return 'defects';
-
-  // Executions (HTML export with Test Case Execution columns)
-  if ((header.some(h=>h.includes('test case execution')) || header.some(h=>h.includes('age (in days)'))) &&
-      header.some(h=>h.includes('assigned to')) && header.some(h=>h.includes('status'))) return 'executions';
-
-  // Test Cases (future)
-  if ((header.some(h=>h.includes('test case number')) || header.some(h=>h.includes('test case: test case name'))) &&
-      header.some(h=>h.includes('story: story name'))) return 'testcases';
-
-  // Stories
-  if (header.some(h=>h.includes('story number')) && header.some(h=>h.includes('story: story name'))) return 'stories';
-
   return null;
 }
 
