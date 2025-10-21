@@ -1711,6 +1711,24 @@ function renderDashboard(){
   renderDonutChart('missingTestsBySprintChart', metrics.missingTestsBySprint||{}, {});
   setTxt('defectSevIdx', (metrics.defectSevIndex||0).toFixed(2));
 }
+
+// NEW: simple HTML exporter used by the Export button
+function exportHTML(){
+  try{
+    const html = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+    const blob = new Blob([html], { type:'text/html;charset=utf-8' });
+    const a = document.createElement('a');
+    const ts = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+    a.download = `release-dashboard-${ts}.html`;
+    a.href = URL.createObjectURL(blob);
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 0);
+  } catch (e){
+    showError('Export failed: ' + e.message);
+  }
+}
 </script>
 </body>
 </html>
