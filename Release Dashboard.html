@@ -524,6 +524,15 @@ function parseDMY(d){
   m = s.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})/);
   if (m) return new Date(+m[3], +m[2]-1, +m[1]);
 
+  // NEW: dd[./-]MM[./-]yy (two-digit year)
+  m = s.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2})(?!\d)/);
+  if (m) {
+    const dd = +m[1], MM = +m[2], yy = +m[3];
+    // Century pivot: <80 => 2000s, otherwise 1900s
+    const yyyy = yy < 80 ? 2000 + yy : 1900 + yy;
+    return new Date(yyyy, MM - 1, dd);
+  }
+
   // dd MMM yyyy (e.g., 14 Oct 2025)
   m = s.match(/^(\d{1,2})\s+([A-Za-z]{3,})\s+(\d{4})/);
   if (m) {
@@ -1488,6 +1497,48 @@ function renderNoExecTests(containerId, items){
     html += `<tr>
       <td>${tc.storyName || tc.storyNumber || ''}</td>
       <td>${tc.tcName || ''}</td>
+    </tr>`;
+  });
+  html += '</tbody></table></div>';
+  el.innerHTML = html;
+}
+
+// NEW: render table of stories without test cases (safe if container missing)
+function renderStoriesWithoutTests(containerId){
+  const el = gid(containerId); if (!el) return; // allow call even if UI element is not present
+  const stories = globalData.stories || [];
+  if (!stories.length){
+    el.innerHTML = '<div class="small" style="padding:20px;text-align:center">No stories report uploaded</div>';
+    return;
+  }
+  const tcs = globalData.testCases || [];
+  let missing = [];
+  if (tcs.length){
+    const haveTC = new Set();
+    tcs.forEach(tc => haveTC.add(normalizeStoryId(tc.storyNumber, tc.storyName)));
+    missing = stories.filter(s => !haveTC.has(normalizeStoryId(s.storyNumber, s.storyName)));
+  } else {
+    missing = stories.filter(s => (s.totalTC || 0) === 0);
+  }
+  if (!missing.length){
+    el.innerHTML = '<div class="small" style="padding:20px;text-align:center">Great! Every story has at least one test case.</div>';
+    return;
+  }
+  // Sort by Sprint then Story
+  missing.sort((a,b)=>{
+    const sa = String(a.sprint||'').localeCompare(String(b.sprint||''), undefined, {numeric:true});
+    if (sa !== 0) return sa;
+    const an = a.storyName || a.storyNumber || '';
+    const bn = b.storyName || b.storyNumber || '';
+    return an.localeCompare(bn, undefined, {numeric:true});
+  });
+  let html = '<div style="max-height:420px;overflow:auto;border:1px solid var(--card-border);border-radius:6px">';
+  html += '<table><thead><tr><th>Story</th><th>Sprint</th><th>Owner</th></tr></thead><tbody>';
+  missing.forEach(s=>{
+    html += `<tr>
+      <td>${s.storyName || s.storyNumber || ''}</td>
+      <td>${s.sprint || ''}</td>
+      <td>${s.owner || s.assignee || ''}</td>
     </tr>`;
   });
   html += '</tbody></table></div>';
