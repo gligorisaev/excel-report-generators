@@ -1,360 +1,1761 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Excel Consolidator — 4 Reports → 1 XLS</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Release Report Dashboard — Light UI</title>
 
-  <!-- SheetJS (XLSX) -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"
-          integrity="sha512-r22gChDnGvBylk90+2e/ycr3RVrDi8DIOkIGNhJlKfuyQM4tIRAI062MaV8sfjQKYVGjOBaZBOA87z+IhZE9DA=="
-          crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <!-- Libraries (CDN) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
   <style>
     :root{
-      --bg:#f8fafc; --card:#ffffff; --text:#111827; --muted:#6b7280; --border:#e5e7eb; --accent:#2563eb;
+      --bg-1:#f8fafc;
+      --bg-2:#eef2ff;
+      --text:#1f2937;
+      --muted:#6b7280;
+      --muted-2:#374151;
+      --card:#ffffff;
+      --card-border:#e5e7eb;
+      --track:#e5e7eb;
+      --header-grad-from:#ffffff;
+      --header-grad-to:#f1f5f9;
+
+      --blue:#3b82f6; --green:#10b981; --purple:#8b5cf6; --orange:#f97316;
+      --red:#ef4444; --teal:#14b8a6; --indigo:#6366f1; --pink:#ec4899; --gray:#6b7280;
     }
-    body{margin:0;padding:24px;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif;}
-    .wrap{max-width:920px;margin:0 auto;}
-    .card{background:var(--card);border:1px solid var(--border);border-radius:14px;box-shadow:0 3px 12px rgba(16,24,40,.04);padding:18px;}
-    h1{margin:0 0 8px;font-size:22px;}
-    p{margin:6px 0;color:var(--muted)}
-    .row{display:flex;gap:12px;flex-wrap:wrap;margin-top:14px}
-    .uploader{flex:1 1 420px;border:2px dashed var(--border);border-radius:12px;padding:16px;background:#fcfcfd}
-    .uploader.drag{border-color:var(--accent);background:#eef2ff}
-    input[type="file"]{width:100%}
-    .controls{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:10px}
-    .btn{appearance:none;border:1px solid var(--border);background:var(--accent);color:#fff;border-radius:10px;padding:10px 14px;font-weight:600;cursor:pointer}
-    .btn:disabled{opacity:.5;cursor:not-allowed}
-    .pill{font-size:12px;background:#eef2ff;color:#1f2937;border:1px solid #e5e7eb;border-radius:20px;padding:6px 10px}
-    .log{margin-top:14px;background:#f9fafb;border:1px solid var(--border);border-radius:10px;padding:10px;height:170px;overflow:auto;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;color:#111827}
-    .small{font-size:12px;color:var(--muted)}
-    label.checkbox{display:inline-flex;align-items:center;gap:8px;font-size:14px;color:#374151}
-    .badge{display:inline-block;background:#10b981;color:#fff;border-radius:8px;padding:2px 8px;font-size:12px;margin-left:8px}
+
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{
+      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+      background:linear-gradient(135deg,var(--bg-1) 0%,var(--bg-2) 100%);
+      min-height:100vh;color:var(--text)
+    }
+    .container{max-width:1600px;margin:0 auto;padding:20px}
+
+    .header{
+      text-align:center;margin-bottom:20px;
+      background:linear-gradient(135deg,var(--header-grad-from),var(--header-grad-to));
+      padding:20px;border-radius:12px;border:1px solid var(--card-border);
+      color:var(--text)
+    }
+    .header h1{font-size:2rem;font-weight:800;margin-bottom:6px}
+    .header p{color:var(--muted)}
+
+    .upload{
+      background:var(--card);border:1px solid var(--card-border);border-radius:12px;padding:20px;margin-bottom:20px
+    }
+    .upload-area{
+      border:2px dashed #93c5fd;border-radius:10px;padding:20px;background:#f8fafc;cursor:pointer;text-align:center;transition:.2s
+    }
+    .upload-area:hover{border-color:#2563eb;background:#f1f5f9}
+    .processing{margin-top:10px;color:#2563eb;display:none}
+    .processing.show{display:block}
+    .spinner{display:inline-block;width:16px;height:16px;border:2px solid #e5e7eb;border-radius:50%;border-top-color:#2563eb;animation:spin 1s infinite;margin-right:8px}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .error{display:none;background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:8px;padding:10px;margin-top:10px}
+    .error.show{display:block}
+
+    .dashboard{display:none;gap:20px}
+    .dashboard.show{display:flex;flex-direction:column}
+
+    /* Metrics */
+    .metrics{
+      display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:20px
+    }
+    .card{
+      position:relative;background:var(--card);border:1px solid var(--card-border);
+      border-radius:12px;padding:14px;display:flex;align-items:center
+    }
+    .card::before{
+      content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--card-accent);
+      border-top-left-radius:12px;border-top-right-radius:12px
+    }
+    .icon{font-size:1.4rem;margin-right:10px}
+    .card .h{font-size:.8rem;color:var(--muted);font-weight:700;text-transform:uppercase}
+    .card .v{font-size:1.4rem;font-weight:800;color:var(--text);margin-top:4px}
+
+    .blue{--card-accent:var(--blue)}.green{--card-accent:var(--green)}
+    .purple{--card-accent:var(--purple)}.orange{--card-accent:var(--orange)}
+    .red{--card-accent:var(--red)}.teal{--card-accent:var(--teal)}
+    .indigo{--card-accent:var(--indigo)}.pink{--card-accent:var(--pink)}.gray{--card-accent:var(--gray)}
+
+    /* Sections / Charts / Tables */
+    .section{
+      background:var(--card);border:1px solid var(--card-border);border-radius:12px;padding:16px;margin-bottom:16px
+    }
+    .section .title{font-weight:800;margin-bottom:12px;color:var(--muted-2);font-size:1.1rem}
+    .grid{display:grid;grid-template-columns:1fr;gap:16px}
+    @media(min-width:1024px){.grid.two{grid-template-columns:1fr 1fr}}
+    .chart{
+      background:#ffffff;border:1px solid var(--card-border);border-radius:8px;padding:12px
+    }
+    .chart .h{font-weight:700;color:var(--muted-2);margin-bottom:8px}
+    .chart-body{
+      max-height:600px;
+      min-height:220px;
+      overflow-y:visible;
+    }
+    /* Remove scrolling and increase height for donut charts */
+    #execByAssigneeChart.chart-body,
+    #testWorkloadChart.chart-body,
+    #execStatusChart.chart-body,
+    #testCoverageHeatmapChart.chart-body {
+      max-height:unset !important;
+      min-height:220px !important;
+      height:auto !important;
+      overflow-y:visible !important;
+    }
+    .chart-explainer {
+      font-size:0.95rem;
+      color:#64748b;
+      margin-bottom:4px;
+      font-style:italic;
+    }
+
+    table{border-collapse:collapse;width:100%;background:#ffffff}
+    th,td{border:1px solid var(--card-border);padding:8px;font-size:.85rem;vertical-align:top}
+    th{background:#f8fafc;color:#0f172a;font-weight:700;position:sticky;top:0;z-index:1}
+    td{color:var(--text)}
+
+    .actions{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+    .btn{
+      background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;border:none;border-radius:8px;padding:10px 14px;cursor:pointer;font-weight:600;transition:.2s
+    }
+    .btn:hover{transform:translateY(-1px)}
+    .btn.secondary{background:linear-gradient(135deg,#0ea5e9,#06b6d4)}
+
+    /* Notices */
+    .warn{background:#fffbeb;border:1px solid #fde68a;color:#92400e;padding:10px;border-radius:6px}
+    .issue{background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;padding:10px;border-radius:6px}
+    .success{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;padding:10px;border-radius:6px}
+    .small{font-size:.85rem;color:var(--muted)}
+
+    /* Collapsible sections */
+    details.collapse{
+      background:var(--card);
+      border:1px solid var(--card-border);
+      border-radius:12px;
+      overflow:hidden;
+      margin-bottom:16px;
+    }
+    details.collapse summary{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      padding:12px 16px;
+      cursor:pointer;
+      font-weight:800;
+      color:var(--muted-2);
+      background:linear-gradient(135deg,var(--header-grad-from),var(--header-grad-to));
+      list-style:none;
+    }
+    details.collapse summary::-webkit-details-marker{ display:none; }
+    details.collapse .chev{ transition:transform .2s ease; color:#64748b; }
+    details.collapse[open] > summary .chev{ transform:rotate(90deg); }
+    details.collapse .content{ padding:16px; }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="card">
-      <h1>Consolidate 4 Excel Reports → 1 <span class="badge">.xls</span></h1>
-      <p>Upload your four reports (Stories, Test Cases, Test Executions, Defects). The tool groups data by Story and exports a single Excel file.</p>
-
-      <div class="row">
-        <div id="drop" class="uploader">
-          <input id="fileInput" type="file" accept=".xls,.xlsx" multiple />
-          <p class="small">Tip: You can also drag &amp; drop the 4 files here.</p>
-        </div>
-        <div class="controls">
-          <label class="checkbox">
-            <input id="trimEmpty" type="checkbox" checked />
-            Remove blank rows
-          </label>
-          <label class="checkbox">
-            <input id="keepFileCol" type="checkbox"/>
-            Add source filename column
-          </label>
-          <button id="goBtn" class="btn" disabled>Consolidate &amp; Download XLS</button>
-          <span id="count" class="pill">0 files selected</span>
-        </div>
-      </div>
-
-      <div id="log" class="log" aria-live="polite"></div>
-      <p class="small">Notes: The first non-empty row is treated as header for each sheet. Columns are merged by header name (case-insensitive). Cells are trimmed.</p>
-    </div>
+<div class="container">
+  <div class="header">
+    <h1>📊 Release Report Dashboard</h1>
+    <p>Complete analytics for User Stories, Test Cases, Executions & Defects</p>
   </div>
 
+  <div class="upload">
+    <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+      <div style="font-size:2rem">📁</div>
+      <div style="font-weight:700;margin-top:6px">Add Reports for Release, User Stories, Test Cases, Test Executions and Defects</div>
+      <div class="small">Select 1–5 .xls/.xlsx/.csv files — the app will auto-detect report types</div>
+      <input id="fileInput" type="file" accept=".xlsx,.xls,.csv" multiple style="display:none"
+             onchange="if(this.files && this.files.length){ processReportFiles(Array.from(this.files)).finally(()=>{ this.value=''; }); }"/>
+    </div>
+
+    <div id="processing" class="processing"><span class="spinner"></span>Processing data...</div>
+    <div id="error" class="error"></div>
+  </div>
+
+  <div id="dashboard" class="dashboard">
+    <!-- Release Overview stays on top -->
+    <div id="releaseSection" class="section" style="display:none">
+      <div class="title">📦 Release Overview</div>
+      <div class="grid two">
+        <div>
+          <div style="background:#f9fafb;padding:12px;border-radius:8px;border:1px solid var(--card-border)">
+            <div style="margin-bottom:6px">Release: <span id="rName" style="font-weight:800;color:#111827">-</span></div>
+            <div style="margin-bottom:6px">Owner: <span id="rOwner">-</span> • Created By: <span id="rCreatedBy">-</span></div>
+            <div style="margin-bottom:6px">Planned: <span id="rPlanRange">-</span></div>
+            <div style="margin-bottom:6px">Actual Start: <span id="rActualStart">-</span> • Actual End: <span id="rActualEnd">-</span></div>
+            <div style="margin-bottom:6px">Key Deliverables:</div>
+            <div class="small" id="rDeliverables">-</div>
+            <div style="margin-top:6px;margin-bottom:6px">Objectives:</div>
+            <div class="small" id="rObjectives">-</div>
+          </div>
+        </div>
+        <div class="metrics" style="margin:0;display:grid;grid-template-columns:repeat(3,minmax(160px,1fr));gap:12px">
+          <div class="card indigo">
+            <div class="icon">⏱️</div>
+            <div>
+              <div class="h">Timeline Progress</div>
+              <div class="v" id="rTimelinePct">0%</div>
+              <div class="small">elapsed vs plan</div>
+            </div>
+          </div>
+          <div class="card green">
+            <div class="icon">📅</div>
+            <div>
+              <div class="h">Days Remaining</div>
+              <div class="v" id="rDaysRemain">-</div>
+              <div class="small">to planned end</div>
+            </div>
+          </div>
+          <div class="card orange">
+            <div class="icon">📉</div>
+            <div>
+              <div class="h">Schedule Variance</div>
+              <div class="v" id="rScheduleVar">0%</div>
+              <div class="small" id="rOnTrack">On track status</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Metric tiles remain second -->
+    <div class="metrics">
+      <div class="card blue"><div class="icon">📋</div><div><div class="h">Total Stories</div><div id="mStories" class="v">0</div><div class="small">count of unique user stories</div></div></div>
+      <div class="card orange"><div class="icon">⚡</div><div><div class="h">Story Points</div><div id="mPoints" class="v">0</div><div class="small">sum of points across all stories</div></div></div>
+      <div class="card teal"><div class="icon">🧪</div><div><div class="h">Test Cases</div><div id="mTC" class="v">0</div><div class="small">number of test cases with names</div></div></div>
+      <div class="card indigo"><div class="icon">🧾</div><div><div class="h">Test Executions</div><div id="mExec" class="v">0</div><div class="small">number of execution records</div></div></div>
+      <div class="card green"><div class="icon">✅</div><div><div class="h">Passed Executions</div><div id="mPassed" class="v">0</div><div class="small">executions with status passed</div></div></div>
+      <div class="card red"><div class="icon">❌</div><div><div class="h">Failed Executions</div><div id="mFailed" class="v">0</div><div class="small">executions with status failed</div></div></div>
+      <div class="card orange"><div class="icon">🚫</div><div><div class="h">Blocked Executions</div><div id="mBlocked" class="v">0</div><div class="small">executions with status blocked</div></div></div>
+      <div class="card gray"><div class="icon">⏳</div><div><div class="h">Not Started Executions</div><div id="mNotStarted" class="v">0</div><div class="small">executions with status not started</div></div></div>
+      <div class="card purple"><div class="icon">🔄</div><div><div class="h">In Progress Executions</div><div id="mInProgress" class="v">0</div><div class="small">executions with status in progress</div></div></div>
+      <div class="card pink"><div class="icon">📊</div><div><div class="h">Coverage</div><div id="mCov" class="v">0%</div><div class="small">percent of stories with at least one test case</div></div></div>
+      <div class="card gray"><div class="icon">🎯</div><div><div class="h">Completion</div><div id="mCompl" class="v">0%</div><div class="small">percent of stories ready for production</div></div></div>
+      <div class="card red"><div class="icon">🐛</div><div><div class="h">Defects</div><div id="mDef" class="v">0</div><div class="small">count of defect records</div></div></div>
+    </div>
+
+    <!-- User Stories Analysis (collapsible) -->
+    <details class="collapse">
+      <summary><span>📋 User Stories Analysis</span><span class="chev">▸</span></summary>
+      <div class="content">
+        <div class="grid two">
+          <div>
+            <h4 style="color:var(--muted-2);margin-bottom:8px">📊 Story Metrics</h4>
+            <div style="background:#f9fafb;padding:12px;border-radius:8px;border:1px solid var(--card-border)">
+              <div style="margin-bottom:6px">Total Stories: <span id="storyTotal" style="color:var(--blue);font-weight:700">0</span></div>
+              <div style="margin-bottom:6px">Avg Points/Story: <span id="storyAvgPoints" style="color:var(--green);font-weight:700">0</span></div>
+              <div style="margin-bottom:6px">Stories without Tests: <span id="storyNoTests" style="color:var(--red);font-weight:700">0</span></div>
+              <div>High Impact Stories: <span id="storyHighImpact" style="color:var(--orange);font-weight:700">0</span></div>
+            </div>
+          </div>
+          <div class="chart">
+            <div class="chart-explainer">Shows the distribution of user stories by their current status.</div>
+            <div class="h">📊 Stories by Status</div>
+            <div id="storyStatusChart" class="chart-body"></div>
+          </div>
+          <div class="chart">
+            <div class="chart-explainer">Shows the number of stories assigned to each sprint.</div>
+            <div class="h">🏃 Stories by Sprint</div>
+            <div id="storySprintChart" class="chart-body"></div>
+          </div>
+          <div class="chart" style="grid-column:1 / -1">
+            <div class="chart-explainer">Count of defects grouped by story. Uses defects report when available, otherwise uses story totals.</div>
+            <div class="h">🐞 Defect Count by Story</div>
+            <div id="defectCountByStoryChart" class="chart-body"></div>
+          </div>
+        </div>
+      </div>
+    </details>
+
+    <!-- Test Cases & Executions Analysis (collapsible) -->
+    <details class="collapse">
+      <summary><span>🧪 Test Cases & Executions Analysis</span><span class="chev">▸</span></summary>
+      <div class="content">
+        <div class="grid two">
+          <div>
+            <h4 style="color:var(--muted-2);margin-bottom:8px">🧪 Test Metrics</h4>
+            <div style="background:#f9fafb;padding:12px;border-radius:8px;border:1px solid var(--card-border)">
+              <div style="margin-bottom:6px">Total Test Cases: <span id="testTotal" style="color:var(--blue);font-weight:700">0</span></div>
+              <div style="margin-bottom:6px">Total Executions: <span id="execTotal" style="color:var(--purple);font-weight:700">0</span></div>
+              <div style="margin-bottom:6px">Execution Coverage: <span id="execCoverage" style="color:var(--green);font-weight:700">0%</span></div>
+              <div style="margin-bottom:6px">Unassigned Executions: <span id="execUnassigned" style="color:var(--red);font-weight:700">0</span></div>
+              <div style="margin-bottom:6px">Passed Executions: <span id="execPassed" style="color:var(--green);font-weight:700">0</span></div>
+              <div style="margin-bottom:6px">Failed Executions: <span id="execFailed" style="color:var(--red);font-weight:700">0</span></div>
+              <div style="margin-bottom:6px">Blocked Executions: <span id="execBlocked" style="color:var(--orange);font-weight:700">0</span></div>
+              <!-- NEW: Tests with No Executions KPI -->
+              <div style="margin-bottom:6px">Tests with No Executions: <span id="testsNoExec" style="color:#ef4444;font-weight:700">0</span></div>
+              <div>Avg Executions/Test: <span id="execPerTest" style="color:var(--orange);font-weight:700">0</span></div>
+              <!-- NEW advanced KPIs -->
+              <div style="margin-top:8px;border-top:1px dashed #e5e7eb;padding-top:8px">
+                <div style="margin-bottom:6px">Pass Rate: <span id="execPassRate" style="color:#10b981;font-weight:700">0%</span></div>
+                <div style="margin-bottom:6px">First Pass Yield: <span id="execFPY" style="color:#06b6d4;font-weight:700">0%</span></div>
+                <div style="margin-bottom:6px">Flaky Tests: <span id="execFlaky" style="color:#ef4444;font-weight:700">0</span></div>
+                <div>Rework Rate: <span id="execReworkRate" style="color:#f59e0b;font-weight:700">0%</span></div>
+              </div>
+            </div>
+          </div>
+          <div>
+            <h4 style="color:var(--muted-2);margin-bottom:8px">👤 Exec Status by Assignee</h4>
+            <div id="execStatusByAssigneeMini" class="chart" style="padding:12px"></div>
+          </div>
+          <div class="chart" style="grid-column:1 / -1">
+            <div class="chart-explainer">Displays the number of test cases linked to each story.</div>
+            <div class="h">📊 Test Cases by Story</div>
+            <div id="testCasesByStoryChart" class="chart-body"></div>
+          </div>
+          <div class="chart" style="grid-column:1 / -1">
+            <div class="chart-explainer">Lists test cases that currently have no executions (based on uploaded Test Cases and Executions reports).</div>
+            <div class="h">🚫 Test Cases Without Executions</div>
+            <div id="noExecTestsChart" class="chart-body"></div>
+          </div>
+          <div class="chart">
+            <div class="chart-explainer">Shows the distribution of test executions by their status (Passed, Failed, Blocked, etc.).</div>
+            <div class="h">📊 Executions by Status</div>
+            <div id="execStatusChart" class="chart-body"></div>
+          </div>
+          <div class="chart">
+            <div class="chart-explainer">Displays how many executions are assigned to each tester.</div>
+            <div class="h">🧾 Executions by Assignee</div>
+            <div id="execByAssigneeChart" class="chart-body"></div>
+          </div>
+          <div class="chart">
+            <div class="chart-explainer">Shows the workload balance among testers based on assigned executions.</div>
+            <div class="h">⚖️ Test Workload Balance</div>
+            <div id="testWorkloadChart" class="chart-body"></div>
+          </div>
+          <div class="chart">
+            <div class="chart-explainer">Displays test coverage per sprint using a donut chart (color indicates coverage quality).</div>
+            <div class="h">📈 Test Coverage Heatmap</div>
+            <div id="testCoverageHeatmapChart" class="chart-body"></div>
+          </div>
+        </div>
+      </div>
+    </details>
+
+    <!-- Defects Analysis (collapsible) -->
+    <details class="collapse">
+      <summary><span>🐛 Defects Analysis</span><span class="chev">▸</span></summary>
+      <div class="content">
+        <div class="grid two">
+          <div>
+            <h4 style="color:var(--muted-2);margin-bottom:8px">🐛 Defect Metrics</h4>
+            <div style="background:#f9fafb;padding:12px;border-radius:8px;border:1px solid #e5e7eb">
+              <div style="margin-bottom:6px">Total Defects: <span id="defectTotal" style="color:var(--red);font-weight:700">0</span></div>
+              <div style="margin-bottom:6px">Defect Density: <span id="defectDensityVal" style="color:var(--orange);font-weight:700">0</span></div>
+              <div style="margin-bottom:6px">Critical Defects: <span id="defectCritical" style="color:#b91c1c;font-weight:700">0</span></div>
+              <div style="margin-bottom:6px">Open Defects: <span id="defectOpen" style="color:#9a3412;font-weight:700">0</span></div>
+              <div>Defects per Story: <span id="defectPerStory" style="color:var(--indigo);font-weight:700">0</span></div>
+              <!-- NEW: Severity index -->
+              <div style="margin-bottom:6px">Severity Index: <span id="defectSevIdx" style="color:#7c3aed;font-weight:700">0</span></div>
+              <!-- NEW: extended metrics -->
+              <div style="margin-top:10px;border-top:1px dashed #e5e7eb;padding-top:10px">
+                <div style="margin-bottom:6px">Closed Defects: <span id="defectClosed" style="color:#1f2937;font-weight:700">0</span></div>
+                <div style="margin-bottom:6px">Avg Days To Close (MTTR): <span id="defectMTTR" style="color:#0ea5e9;font-weight:700">0</span></div>
+                <div>Avg Days Since Update (Open): <span id="defectOpenAvgAge" style="color:#f59e0b;font-weight:700">0</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="chart" style="grid-column:1 / -1">
+            <div class="chart-explainer">Lists all defects by defect number (primary) with related story.</div>
+            <div class="h">📊 Defects (by Defect Number)</div>
+            <div id="defectsByStoryChart" class="chart-body"></div>
+          </div>
+          <div class="chart">
+            <div class="chart-explainer">Displays the distribution of defects by their current status.</div>
+            <div class="h">🐛 Defects by Status</div>
+            <div id="defectStatusChart" class="chart-body"></div>
+          </div>
+          <div class="chart">
+            <div class="chart-explainer">Distribution of defects by Severity from report.</div>
+            <div class="h">🔥 Defects by Severity</div>
+            <div id="defectSeverityChart" class="chart-body"></div>
+          </div>
+          <div class="chart">
+            <div class="chart-explainer">Distribution of defects by Complexity (size).</div>
+            <div class="h">📏 Defects by Complexity</div>
+            <div id="defectComplexityChart" class="chart-body"></div>
+          </div>
+          <div class="chart">
+            <div class="chart-explainer">Distribution of defects by Type.</div>
+            <div class="h">🏷️ Defects by Type</div>
+            <div id="defectTypeChart" class="chart-body"></div>
+          </div>
+          <div class="chart">
+            <div class="chart-explainer">Open defects grouped by days since last update.</div>
+            <div class="h">⏱️ Open Defects Aging</div>
+            <div id="defectAgingChart" class="chart-body"></div>
+          </div>
+        </div>
+      </div>
+    </details>
+
+    <!-- Comparison (collapsible; still controlled by JS visibility) -->
+    <details id="comparisonSection" class="collapse" style="display:none">
+      <summary><span>📊 Differences Between Uploaded Files</span><span class="chev">▸</span></summary>
+      <div class="content">
+        <div id="comparisonContainer"></div>
+      </div>
+    </details>
+
+    <!-- Data Quality (collapsible) -->
+    <details class="collapse">
+      <summary><span>✅ Data Quality Analysis</span><span class="chev">▸</span></summary>
+      <div class="content">
+        <div id="dqContainer"></div>
+        <div class="chart" style="margin-top:12px">
+          <div class="chart-explainer">Stories lacking test cases, grouped by sprint.</div>
+          <div class="h">🚩 Stories Without Tests by Sprint</div>
+          <div id="missingTestsBySprintChart" class="chart-body"></div>
+        </div>
+      </div>
+    </details>
+
+    <!-- Export Options (collapsible) -->
+    <details class="collapse">
+      <summary><span>📤 Export Options</span><span class="chev">▸</span></summary>
+      <div class="content">
+        <div class="actions">
+          <button class="btn" onclick="exportHTML()">💾 Export HTML</button>
+        </div>
+      </div>
+    </details>
+  </div>
+</div>
+
 <script>
-(function(){
-  const input = document.getElementById('fileInput');
-  const goBtn = document.getElementById('goBtn');
-  const count = document.getElementById('count');
-  const logEl = document.getElementById('log');
-  const trimEmpty = document.getElementById('trimEmpty');
-  const keepFileCol = document.getElementById('keepFileCol');
-  const drop = document.getElementById('drop');
+/* ===== Compact core app script (single copy) ===== */
 
-  let files = [];
+let globalData = { stories:[], testCases:[], executions:[], defects:[], release:null };
+let metrics = {};
+let defectsReportData = null;
+let storiesReportData = null;
 
-  function log(msg){ logEl.textContent += msg + "\n"; logEl.scrollTop = logEl.scrollHeight; }
-  function clearLog(){ logEl.textContent = ""; }
+/* UI helpers */
+function gid(id){ return document.getElementById(id); }
+function setTxt(id, val){ const el=gid(id); if (el) el.textContent = (val ?? '') }
+function showProcessing(){ gid('processing')?.classList.add('show'); gid('error')?.classList.remove('show'); }
+function hideProcessing(){ gid('processing')?.classList.remove('show'); }
+function showError(msg){ const el=gid('error'); if (el){ el.textContent=msg; el.classList.add('show'); } }
+function showDashboard(){ gid('dashboard')?.classList.add('show'); }
 
-  function updateCount(){
-    count.textContent = `${files.length} file${files.length===1?'':'s'} selected`;
-    goBtn.disabled = files.length === 0;
-  }
+/* File I/O */
+/* REPLACE previous readWorkbook(mode) with CSV-aware reader */
+function readWorkbook(file){
+  return new Promise((resolve, reject) => {
+    const isCSV = /\.csv$/i.test(file.name || '');
+    const reader = new FileReader();
 
-  input.addEventListener('change', e => {
-    files = Array.from(e.target.files || []);
-    clearLog();
-    if (files.length) {
-      log(`Selected ${files.length} file(s):`);
-      files.forEach(f => log(` • ${f.name}`));
-    }
-    updateCount();
-  });
+    reader.onload = e => {
+      try{
+        if (isCSV) {
+          // CSV: read as text and let SheetJS parse it
+          const text = e.target.result;
+          const wb = XLSX.read(text, { type:'string', raw:false });
+          return resolve(wb);
+        }
 
-  // Drag & drop
-  ;['dragenter','dragover'].forEach(evt =>
-    drop.addEventListener(evt, e => { e.preventDefault(); e.stopPropagation(); drop.classList.add('drag'); })
-  );
-  ;['dragleave','drop'].forEach(evt =>
-    drop.addEventListener(evt, e => { e.preventDefault(); e.stopPropagation(); drop.classList.remove('drag'); })
-  );
-  drop.addEventListener('drop', e => {
-    files = Array.from(e.dataTransfer.files || []).filter(f => /\.(xlsx|xls)$/i.test(f.name));
-    input.value = ''; // reset <input> to reflect new selection if needed
-    clearLog();
-    if (files.length) {
-      log(`Dropped ${files.length} file(s):`);
-      files.forEach(f => log(` • ${f.name}`));
-    } else {
-      log('No Excel files detected in drop.');
-    }
-    updateCount();
-  });
+        const buf = e.target.result; // ArrayBuffer
+        // Try binary first (true XLS/XLSX)
+        let wb = null;
+        try { wb = XLSX.read(new Uint8Array(buf), { type:'array' }); } catch(_e){}
+        if (wb) {
+          const t = detectReportType(wb);
+          if (t) return resolve(wb);
+        }
 
-  function normalizeHeader(h){
-    if (h == null) return '';
-    return String(h).trim().replace(/\s+/g,' ').toLowerCase();
-  }
+        // Fallback: decode as HTML/text (handles legacy .xls HTML exports)
+        const head = new TextDecoder('utf-8',{fatal:false}).decode(new Uint8Array(buf.slice(0, 4096)));
+        const m = head.match(/charset=([A-Za-z0-9._-]+)/i);
+        let enc = (m ? m[1] : 'utf-8').toLowerCase();
+        if (enc === 'latin1') enc = 'iso-8859-1';
 
-  function findHeaderRow(aoa){
-    for (let i=0;i<aoa.length;i++){
-      const row = aoa[i] || [];
-      const nonEmpty = row.filter(v => v!=null && String(v).trim()!=='').length;
-      if (nonEmpty >= 1) return i;
-    }
-    return -1;
-  }
+        let text;
+        try { text = new TextDecoder(enc).decode(new Uint8Array(buf)); }
+        catch(_e){ text = new TextDecoder('utf-8').decode(new Uint8Array(buf)); }
 
-  function buildRowMap(headers){
-    const map = {};
-    headers.forEach((h,idx)=>{ map[normalizeHeader(h)] = idx; });
-    return map;
-  }
-
-  function isBlankRow(row){
-    return row.every(v => v==null || String(v).trim()==='');
-  }
-
-  // NEW: detect report type from header row
-  function detectType(headers){
-    const hs = headers.map(normalizeHeader);
-    const has = s => hs.some(h => h.includes(s));
-    const all = (...arr) => arr.every(a => has(a));
-    if (all('defect number','defect name')) return 'defects';
-    if ((has('test case execution') || has('age (in days)')) && all('status')) return 'executions';
-    if ((has('test case number') || has('test case: test case name')) && (has('story: story name') || has('story name'))) return 'testcases';
-    if ((has('story number') || has('story: story name') || has('story name')) && (has('story status') || has('story: story name') || has('story number'))) return 'stories';
-    return 'unknown';
-  }
-
-  // NEW: safe cell getter by aliases
-  function getVal(row, map, aliases){
-    for (const a of aliases){
-      const key = normalizeHeader(a);
-      const idx = map[key];
-      if (idx != null){
-        const v = row[idx];
-        if (v != null && String(v).trim() !== '') return String(v).trim();
-      }
-    }
-    return '';
-  }
-
-  // NEW: derive story key and name from a row
-  function deriveStory(row, map){
-    const storyNum = getVal(row, map, ['Story Number']);
-    const storyName = getVal(row, map, ['Story: Story Name','Story Name','Story']);
-    let key = storyNum || '';
-    if (!key){
-      const m = (storyName || '').match(/Stab\.\d+/i);
-      key = m ? m[0] : (storyName || 'Unknown Story');
-    }
-    return { storyKey: key, storyName: storyName || storyNum || key };
-  }
-
-  async function readWorkbook(file){
-    const buf = await file.arrayBuffer();
-    return XLSX.read(buf, { type:'array', cellDates:true, raw:false });
-  }
-
-  // REPLACED: consolidate to join reports and emit a single flattened table per Test Case
-  async function consolidate(){
-    clearLog();
-    if (!files.length){ log('No files selected.'); return; }
-    log(`Starting consolidation of ${files.length} file(s) ...`);
-
-    // Storage
-    // CHANGED: index stories by number, by Stab.* code, and by normalized story name
-    const storyIndex = { byNumber:new Map(), byStab:new Map(), byName:new Map() };
-    const tcList = [];              // [{ tcKey, tcName, storyName, stab, slice:[], ... }]
-    const execByTC = new Map();     // tcKey -> [ slice[] ]
-    const defByTC  = new Map();     // tcKey -> [ slice[] ]
-    let storyHdrSel = null, tcHdrSel = null, execHdrSel = null, defHdrSel = null;
-
-    // Helpers
-    const empty = (n) => Array(n).fill('');
-    const idxSlice = (arr, from, toIncl) => arr.slice(from, toIncl + 1);
-    const addMapArr = (map, key, val) => { if (!key) return; if (!map.has(key)) map.set(key, []); map.get(key).push(val); };
-    const norm = s => String(s||'').trim();
-    const normName = s => norm(s).toLowerCase();
-    const extractStab = s => {
-      const m = String(s||'').match(/Stab\.\d+/i);
-      return m ? m[0] : '';
+        const wbText = XLSX.read(text, { type:'string' });
+        resolve(wbText);
+      }catch(err){ reject(err); }
     };
 
-    // Extract a story key from a row/header map (kept for compatibility)
-    function deriveStoryKey(row, hmap){
-      const num = getVal(row, hmap, ['Story Number']);
-      if (num) return num;
-      const sname = getVal(row, hmap, ['Story: Story Name','Story Name','Story']);
-      const m = (sname||'').match(/Stab\.\d+/i);
-      return m ? m[0] : norm(sname) || '';
+    reader.onerror = reject;
+    if (isCSV) reader.readAsText(file);
+    else reader.readAsArrayBuffer(file);
+  });
+}
+
+/* Detect report type by first header row (supports your samples) */
+function detectReportType(workbook){
+  const ws = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
+  if (!rows || !rows.length) return null;
+
+  const scanLimit = Math.min(rows.length, 50);
+  for (let i = 0; i < scanLimit; i++) {
+    const header = (rows[i] || []).map(h => String(h||'').toLowerCase().trim());
+    if (!header.length) continue;
+
+    // Release report
+    if (header.some(h=>h.includes('release: release name')) &&
+        (header.some(h=>h.includes('planned start date')) || header.some(h=>h.includes('planned end date')))) {
+      return 'release';
     }
-    // Extract a test case key and name
-    function deriveTC(row, hmap){
-      const name = getVal(row, hmap, ['Test Case: Test Case Name','Test Case','Test Case Name']);
-      const num  = getVal(row, hmap, ['Test Case Number']);
-      const tcKey = norm(name || num);
-      return { tcKey, tcName: norm(name), tcNum: norm(num) };
+    // Defects report
+    if (header.some(h=>h.includes('defect number')) && header.some(h=>h.includes('defect name'))) {
+      return 'defects';
     }
-
-    for (const file of files){
-      log(`\nReading: ${file.name}`);
-      let wb;
-      try { wb = await readWorkbook(file); }
-      catch(err){ log(`  ! Failed to read: ${err.message || err}`); continue; }
-
-      const sheetName = wb.SheetNames[0];
-      if (!sheetName){ log('  ! No sheets found. Skipping.'); continue; }
-      const ws = wb.Sheets[sheetName];
-      const aoa = XLSX.utils.sheet_to_json(ws, { header:1, raw:false, defval:'' });
-      const hdrRow = findHeaderRow(aoa);
-      if (hdrRow < 0){ log('  ! No non-empty header row found. Skipping.'); continue; }
-
-      const headers = (aoa[hdrRow] || []).map(h => (h==null?'':String(h)));
-      const hmap = buildRowMap(headers);
-      const type = detectType(headers);
-      log(`  • Detected type: ${type}`);
-
-      for (let r = hdrRow+1; r < aoa.length; r++){
-        const row = aoa[r] || [];
-        if (trimEmpty.checked && isBlankRow(row)) continue;
-
-        if (type === 'stories'){
-          // Select A-J (0..9) and index by multiple keys
-          const sel = idxSlice(row, 0, 9);
-          const num = getVal(row, hmap, ['Story Number']);
-          const sname = getVal(row, hmap, ['Story: Story Name','Story Name','Story']);
-          const stab = extractStab(sname);
-          const rec = { slice: sel, raw: row, headers, num: norm(num), name: norm(sname), stab: stab };
-          if (rec.num) storyIndex.byNumber.set(rec.num, rec);
-          if (rec.stab) storyIndex.byStab.set(rec.stab, rec);
-          if (rec.name) storyIndex.byName.set(normName(rec.name), rec);
-          if (!storyHdrSel) storyHdrSel = idxSlice(headers, 0, 9);
-        } else if (type === 'testcases'){
-          // Select A-G (0..6)
-          const sel = idxSlice(row, 0, 6);
-          const { tcKey, tcName } = deriveTC(row, hmap);
-          if (!tcKey) continue;
-          const sname = getVal(row, hmap, ['Story: Story Name','Story Name','Story']);
-          const stab = extractStab(sname);
-          tcList.push({ tcKey, tcName, storyName: norm(sname), stab, slice: sel, raw: row, headers });
-          if (!tcHdrSel) tcHdrSel = idxSlice(headers, 0, 6);
-        } else if (type === 'executions'){
-          // Select E-K (4..10), key by test case name in column "Test Case"
-          const tcName = getVal(row, hmap, ['Test Case','Test Case Name']);
-          const key = norm(tcName);
-          if (!key) continue;
-          const sel = idxSlice(row, 4, 10);
-          addMapArr(execByTC, key, sel);
-          if (!execHdrSel) execHdrSel = idxSlice(headers, 4, 10);
-        } else if (type === 'defects'){
-          // Select E-O (4..14), key by "Test Case: Test Case Name"
-          const tcName = getVal(row, hmap, ['Test Case: Test Case Name','Test Case','Test Case Name']);
-          const key = norm(tcName);
-          if (!key) continue;
-          const sel = idxSlice(row, 4, 14);
-          addMapArr(defByTC, key, sel);
-          if (!defHdrSel) defHdrSel = idxSlice(headers, 4, 14);
-        }
-      }
-      log(`  ✓ Processed "${sheetName}"`);
+    // Executions report
+    if ((header.some(h=>h.includes('test case execution')) || header.some(h=>h.includes('age (in days)'))) &&
+        header.some(h=>h.includes('assigned to')) && header.some(h=>h.includes('status'))) {
+      return 'executions';
     }
-
-    if (!tcList.length){
-      log('\nNo Test Case rows found. Nothing to export.');
-      return;
+    // Test Cases report
+    if ((header.some(h=>h.includes('test case number')) || header.some(h=>h.includes('test case: test case name'))) &&
+        header.some(h=>h.includes('story: story name'))) {
+      return 'testcases';
     }
-
-    // Build final header
-    const storyLen = (storyHdrSel||[]).length || 10;
-    const tcLen    = (tcHdrSel||[]).length    || 7;
-    const execLen  = (execHdrSel||[]).length  || 7;
-    const defLen   = (defHdrSel||[]).length   || 11;
-    const header = [
-      ...(storyHdrSel || Array.from({length:10}, (_,i)=>`Story Col ${i+1}`)),
-      ...(tcHdrSel    || Array.from({length:7},  (_,i)=>`TC Col ${i+1}`)),
-      ...(execHdrSel  || Array.from({length:7},  (_,i)=>`Exec Col ${i+1}`)),
-      ...(defHdrSel   || Array.from({length:11}, (_,i)=>`Defect Col ${i+1}`))
-    ];
-
-    // Compose rows: for each Test Case, cross-join execs and defects; ensure at least one row
-    const outRows = [];
-    tcList.forEach(tc => {
-      // CHANGED: resolve story record by Stab.* first, then by normalized name
-      let sRec = null;
-      if (tc.stab && storyIndex.byStab.has(tc.stab)) sRec = storyIndex.byStab.get(tc.stab);
-      else if (tc.storyName && storyIndex.byName.has(normName(tc.storyName))) sRec = storyIndex.byName.get(normName(tc.storyName));
-      const storySlice = sRec ? sRec.slice : empty(storyLen);
-
-      const execs = execByTC.get(tc.tcName) || execByTC.get(tc.tcKey) || [];
-      const defs  = defByTC.get(tc.tcName)  || defByTC.get(tc.tcKey)  || [];
-
-      const execList = execs.length ? execs : [empty(execLen)];
-      const defList  = defs.length  ? defs  : [empty(defLen)];
-
-      execList.forEach(ex => {
-        defList.forEach(df => {
-          outRows.push([
-            ...storySlice,
-            ...tc.slice,
-            ...ex,
-            ...df
-          ]);
-        });
-      });
-    });
-
-    if (!outRows.length){
-      log('\nNo rows to export after joining.');
-      return;
-    }
-
-    // Build worksheet and autosize
-    const outAOA = [header, ...outRows];
-    const outWS = XLSX.utils.aoa_to_sheet(outAOA);
-    const colWidths = header.map((h, i) => {
-      const maxLen = Math.max(String(h||'').length, ...outRows.map(r => String(r[i] ?? '').length));
-      return { wch: Math.min(Math.max(8, maxLen + 2), 60) };
-    });
-    outWS['!cols'] = colWidths;
-
-    // Save
-    const outWB = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(outWB, outWS, 'Merged');
-    const filename = 'Consolidated_Merged.xls';
-    try {
-      XLSX.writeFile(outWB, filename, { bookType:'xls' });
-      log(`\n✅ Done. File downloaded: ${filename}`);
-    } catch(err){
-      log(`\n❌ Failed to write file: ${err.message || err}`);
+    // Stories report
+    if (header.some(h=>h.includes('story number')) && header.some(h=>h.includes('story: story name'))) {
+      return 'stories';
     }
   }
+  return null;
+}
 
-  goBtn.addEventListener('click', consolidate);
-})();
+/* Date helpers */
+function parseDMY(d){
+  if (d === null || d === undefined) return null;
+  if (d instanceof Date && !isNaN(d.getTime())) {
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  }
+  const s = String(d).trim();
+  // Excel serial number (rough bounds)
+  const num = Number(s);
+  if (!Number.isNaN(num) && /^\d+(\.\d+)?$/.test(s) && num > 25569 && num < 60000) {
+    const ms = (num - 25569) * 86400 * 1000;
+    const dt = new Date(ms);
+    return new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+  }
+  // ISO yyyy-MM-dd (optionally with time)
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return new Date(+m[1], +m[2]-1, +m[3]);
+
+  // dd[./-]MM[./-]yyyy (optionally with time)
+  m = s.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})/);
+  if (m) return new Date(+m[3], +m[2]-1, +m[1]);
+
+  // NEW: dd[./-]MM[./-]yy (two-digit year)
+  m = s.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2})(?!\d)/);
+  if (m) {
+    const dd = +m[1], MM = +m[2], yy = +m[3];
+    // Century pivot: <80 => 2000s, otherwise 1900s
+    const yyyy = yy < 80 ? 2000 + yy : 1900 + yy;
+    return new Date(yyyy, MM - 1, dd);
+  }
+
+  // dd MMM yyyy (e.g., 14 Oct 2025)
+  m = s.match(/^(\d{1,2})\s+([A-Za-z]{3,})\s+(\d{4})/);
+  if (m) {
+    const months = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+    const mi = months[m[2].slice(0,3).toLowerCase()];
+    if (mi !== undefined) return new Date(+m[3], mi, +m[1]);
+  }
+  return null;
+}
+function daysBetween(a,b){
+  if (!(a instanceof Date) || !(b instanceof Date)) return 0;
+  const ms = (a.setHours(0,0,0,0) - b.setHours(0,0,0,0));
+  return Math.round(ms/(1000*60*60*24));
+}
+function fmtDate(d){
+  if (d instanceof Date && !isNaN(d.getTime())) return d.toLocaleDateString();
+  const p = parseDMY(d);
+  return p ? p.toLocaleDateString() : (d ? String(d) : '-');
+}
+// Helper: build planned range text with graceful fallback
+function buildRangeText(startRaw, endRaw){
+  const a = fmtDate(startRaw);
+  const b = fmtDate(endRaw);
+  return (a === '-' && b === '-') ? '-' : `${a} → ${b}`;
+}
+
+// NEW: safe HTML stripper for .xls HTML exports (links and entities)
+function stripHtml(s){
+  const txt = String(s ?? '');
+  const noTags = txt.replace(/<[^>]*>/g, ' ');
+  return noTags
+    .replace(/&nbsp;/g,' ')
+    .replace(/&amp;/g,'&')
+    .replace(/&quot;/g,'"')
+    .replace(/&#39;/g,"'")
+    .replace(/&lt;/g,'<')
+    .replace(/&gt;/g,'>')
+    .replace(/\s+/g,' ')
+    .trim();
+}
+
+/* NEW: Parse Release report (first non-empty row) */
+function parseReleaseReport(workbook){
+  const ws = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
+  let headerRow = -1;
+  for (let i=0;i<rows.length;i++){
+    const r = rows[i]||[];
+    if (r.some(c => String(c).toLowerCase().includes('release: release name'))) { headerRow = i; break; }
+  }
+  if (headerRow === -1) throw new Error('Could not find release report header row');
+
+  const hdr = rows[headerRow] || [];
+  const col = {};
+  hdr.forEach((h, idx) => {
+    const t = String(h||'').trim().toLowerCase();
+    if (t.includes('release: release name')) col.name = idx;
+    if (t.includes('release: created by')) col.createdBy = idx;
+    if (t.includes('release: owner name')) col.owner = idx;
+    if (t.includes('release: created date')) col.createdDate = idx;
+    if (t.includes('planned start date')) col.plannedStart = idx;
+    if (t.includes('planned end date')) col.plannedEnd = idx;
+    if (t.includes('actual start date')) col.actualStart = idx;
+    if (t.includes('actual end date')) col.actualEnd = idx;
+    if (t.includes('key deliverables')) col.deliverables = idx;
+    if (t.includes('objectives')) col.objectives = idx;
+  });
+
+  for (let i = headerRow + 1; i < rows.length; i++){
+    const r = rows[i] || [];
+    const name = String(r[col.name]||'').trim();
+    if (!name) continue;
+    const plannedStart = String(r[col.plannedStart]||'').trim();
+    const plannedEnd = String(r[col.plannedEnd]||'').trim();
+    const actualStart = String(r[col.actualStart]||'').trim();
+    const actualEnd = String(r[col.actualEnd]||'').trim();
+    return {
+      name,
+      createdBy: String(r[col.createdBy]||'').trim(),
+      owner: String(r[col.owner]||'').trim(),
+      createdDate: String(r[col.createdDate]||'').trim(),
+      plannedStart,
+      plannedEnd,
+      actualStart,
+      actualEnd,
+      keyDeliverables: String(r[col.deliverables]||'').trim(),
+      objectives: String(r[col.objectives]||'').trim(),
+      _plannedStart: parseDMY(plannedStart),
+      _plannedEnd: parseDMY(plannedEnd),
+      _actualStart: parseDMY(actualStart),
+      _actualEnd: parseDMY(actualEnd)
+    };
+  }
+  return null;
+}
+
+/* MISSING: Parse Stories report */
+function parseStoriesReport(workbook){
+  const ws = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
+  let headerRow = -1;
+  for (let i=0;i<rows.length;i++){
+    const r = rows[i]||[];
+    if (r.some(c => String(c).toLowerCase().includes('story: story name'))) { headerRow=i; break; }
+  }
+  if (headerRow === -1) throw new Error('Could not find stories report header row');
+  const hdr = rows[headerRow] || [];
+  const col = {};
+  hdr.forEach((h, idx) => {
+    const t = String(h||'').trim().toLowerCase();
+    if (t.includes('release')) col.release = idx;
+    if (t === 'sprint' || t.includes('sprint')) col.sprint = idx;
+    if (t.includes('story number')) col.storyNum = idx;
+    if (t.includes('story: story name')) col.storyName = idx;
+    if (t.includes('story status')) col.status = idx;
+    if (t.includes('story owner')) col.owner = idx;
+    if (t === 'assignee' || t.includes('assignee')) col.assignee = idx;
+    if (t.includes('story: created by')) col.createdBy = idx;
+    if (t.includes('story: created date')) col.createdDate = idx;
+    if (t.includes('last modified date')) col.lastModDate = idx;
+    if (t.includes('# total test cases')) col.totalTC = idx;
+    if (t.includes('#test cases executed')) col.totalExec = idx;
+    if (t.includes('#total defects')) col.totalDef = idx;
+  });
+  const out = [];
+  for (let i = headerRow + 1; i < rows.length; i++){
+    const r = rows[i] || [];
+    const rawStoryName = String(r[col.storyName] || '').trim();
+    if (!rawStoryName) continue;
+    const m = rawStoryName.match(/Stab\.\d+/i);
+    const stabId = m ? m[0] : '';
+    const storyNumber = stabId || String(r[col.storyNum]||'').trim() || rawStoryName;
+    out.push({
+      storyNumber,
+      storyKey: String(r[col.storyNum]||'').trim(),
+      storyName: rawStoryName,
+      storyStatus: String(r[col.status] || '').trim(),
+      owner: String(r[col.owner]||'').trim(),
+      assignee: String(r[col.assignee]||'').trim(),
+      createdBy: String(r[col.createdBy]||'').trim(),
+      sprint: String(r[col.sprint]||'').trim(),
+      createdDate: String(r[col.createdDate]||'').trim(),
+      lastModDate: String(r[col.lastModDate]||'').trim(),
+      totalTC: Number(r[col.totalTC] || 0),
+      totalExec: Number(r[col.totalExec] || 0),
+      totalDef: Number(r[col.totalDef] || 0),
+      releaseName: String(r[col.release] || '').trim()
+    });
+  }
+  return out;
+}
+
+/* MISSING: Parse Defects report */
+function parseDefectsReport(workbook){
+  const ws = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
+  let headerRow = -1;
+  for (let i=0;i<rows.length;i++){
+    const r = rows[i]||[];
+    const ok = r.some(c => String(c).includes('Defect Number')) &&
+               r.some(c => String(c).includes('Defect Name')) &&
+               r.some(c => String(c).toLowerCase().includes('status'));
+    if (ok){ headerRow=i; break; }
+  }
+  if (headerRow === -1) throw new Error('Could not find defects report header row');
+  const hdr = rows[headerRow] || [];
+  const col = {};
+  hdr.forEach((h, idx) => {
+    const t = String(h||'').trim();
+    const tl = t.toLowerCase();
+    if (tl.includes('release')) col.release = idx;
+    if (tl.includes('sprint')) col.sprint = idx;
+    if (t === 'Story' || tl.includes('story')) col.story = idx;
+    if (tl.includes('test case')) col.testCase = idx;
+    if (t.includes('Defect Number')) col.defectNumber = idx;
+    if (t.includes('Defect Name')) col.defectName = idx;
+    if (t === 'Status' || /status/i.test(t)) col.status = idx;
+    if (/severity/i.test(t)) col.severity = idx;
+    if (/complexity/i.test(t)) col.complexity = idx;
+    if (/Days Since Last Update/i.test(t)) col.daysSinceUpdate = idx;
+    if (t.includes('Type')) col.type = idx;
+    if (t.includes('Created Date')) col.createdDate = idx;
+    if (t.includes('Closed Date')) col.closedDate = idx;
+    if (t.includes('Created By')) col.createdBy = idx;
+    if (t.includes('Assigned To')) col.assignedTo = idx;
+    if (/story impact/i.test(t) || tl === 'impact') col.impact = idx;
+  });
+  const out = [];
+  for (let i = headerRow + 1; i < rows.length; i++){
+    const r = rows[i] || [];
+    const defectNum = String(r[col.defectNumber] || '').trim();
+    const defectName = String(r[col.defectName] || '').trim();
+    if (!defectNum && !defectName) continue;
+    const storyText = String(r[col.story] || '').replace(/<[^>]*>/g, '').trim();
+    const m = storyText.match(/Stab\.(\d+)/);
+    const storyNumber = m ? 'Stab.' + m[1] : '';
+    out.push({
+      storyNumber,
+      storyName: storyText,
+      tcName: String(r[col.testCase] || '').trim(),
+      tceNum: '',
+      defectNum,
+      defectName,
+      defectStatus: String(r[col.status] || '').trim(),
+      defectCreatedBy: String(r[col.createdBy] || '').trim(),
+      defectAssignedTo: String(r[col.assignedTo] || '').trim(),
+      createdDate: String(r[col.createdDate] || '').trim(),
+      closedDate: String(r[col.closedDate] || '').trim(),
+      sprint: String(r[col.sprint] || '').trim(),
+      releaseName: String(r[col.release] || '').trim(),
+      severity: String(r[col.severity] || '').trim(),
+      complexity: String(r[col.complexity] || '').trim(),
+      type: String(r[col.type] || '').trim(),
+      daysSinceUpdate: Number(r[col.daysSinceUpdate] || 0),
+      storyImpact: String((col.impact !== undefined ? r[col.impact] : '') || '').trim()
+    });
+  }
+  return out;
+}
+
+/* MISSING: Parse Test Cases report */
+function parseTestCasesReport(workbook){
+  const ws = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
+  let headerRow = -1;
+  for (let i=0;i<rows.length;i++){
+    const r = rows[i]||[];
+    const has = r.some(c=>String(c).toLowerCase().includes('test case number')) ||
+                r.some(c=>String(c).toLowerCase().includes('test case: test case name'));
+    if (has){ headerRow=i; break; }
+  }
+  if (headerRow === -1) throw new Error('Could not find test cases report header row');
+  const hdr = rows[headerRow] || [];
+  const col = {};
+  hdr.forEach((h, idx) => {
+    const t = String(h||'').trim().toLowerCase();
+    if (t.includes('release name')) col.release = idx;
+    if (t === 'sprint' || t.includes('sprint')) col.sprint = idx;
+    if (t.includes('story: story name')) col.storyName = idx;
+    if (t.includes('test case number')) col.tcNumber = idx;
+    if (t.includes('test case: test case name')) col.tcName = idx;
+    if (t.includes('test case: created by')) col.createdBy = idx;
+    if (t.includes('test case: created date')) col.createdDate = idx;
+    if (t.includes('# open defects')) col.openDefects = idx;
+  });
+  const out = [];
+  for (let i = headerRow + 1; i < rows.length; i++){
+    const r = rows[i] || [];
+    const storyText = stripHtml(r[col.storyName] || '');
+    if (!storyText) continue;
+    const m = storyText.match(/Stab\.\d+/i);
+    const storyNumber = m ? m[0] : storyText;
+    const tcName = stripHtml(r[col.tcName] || r[col.tcNumber] || '').trim();
+    if (!tcName) continue;
+    out.push({
+      storyNumber,
+      storyName: storyText,
+      tcName,
+      tcNumber: String(r[col.tcNumber] || '').trim(),
+      releaseName: String(r[col.release] || '').trim(),
+      sprint: String(r[col.sprint] || '').trim(),
+      tcCreatedBy: String(r[col.createdBy] || '').trim(),
+      tcCreatedDate: String(r[col.createdDate] || '').trim(),
+      openDefects: Number(r[col.openDefects] || 0)
+    });
+  }
+  return out;
+}
+
+/* MISSING: Parse Executions report */
+function parseExecutionsReport(workbook){
+  const ws = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
+  let headerRow = -1;
+  for (let i=0;i<rows.length;i++){
+    const r = rows[i]||[];
+    const has = (r.some(c => String(c).toLowerCase().includes('test case execution')) ||
+                 r.some(c => String(c).toLowerCase().includes('age (in days)'))) &&
+                r.some(c => String(c).toLowerCase().includes('status'));
+    if (has){ headerRow=i; break; }
+  }
+  if (headerRow === -1) throw new Error('Could not find test executions report header row');
+  const hdr = rows[headerRow] || [];
+  const col = {};
+  hdr.forEach((h, idx) => {
+    const t = String(h||'').trim().toLowerCase();
+    if (t.includes('release name')) col.release = idx;
+    if (t.includes('sprint name') || t === 'sprint') col.sprint = idx;
+    if (t.includes('story name') || t === 'story') col.storyName = idx;
+    if ((t === 'test case' || t === 'test case name') && !t.includes('execution')) col.tcName = idx;
+    if (t.includes('assigned to')) col.assignedTo = idx;
+    if (t.includes('edit date')) col.editDate = idx;
+    if (t.includes('status')) col.status = idx;
+    if (t.includes('age (in days)')) col.ageDays = idx;
+    if (t.includes('test case execution: last modified by')) col.lastModBy = idx;
+    if (t.includes('test case execution: created by')) col.createdBy = idx;
+    if (t.includes('target completion date')) col.targetDate = idx;
+  });
+  const out = [];
+  for (let i = headerRow + 1; i < rows.length; i++){
+    const r = rows[i] || [];
+    const storyText = stripHtml(r[col.storyName] || '');
+    if (!storyText) continue;
+    const m = storyText.match(/Stab\.\d+/i);
+    const storyNumber = m ? m[0] : storyText;
+    const tcName = stripHtml(r[col.tcName] || '').trim();
+    if (!tcName) continue;
+    out.push({
+      storyNumber,
+      storyName: storyText,
+      tcName,
+      tceNum: '',
+      execAssigned: String(r[col.assignedTo] || '').trim(),
+      execStatus: String(r[col.status] || '').trim(),
+      editDate: String(r[col.editDate] || '').trim(),
+      ageDays: Number(r[col.ageDays] || 0),
+      lastModBy: String(r[col.lastModBy] || '').trim(),
+      execCreatedBy: String(r[col.createdBy] || '').trim(),
+      targetDate: String(r[col.targetDate] || '').trim(),
+      sprint: String(r[col.sprint] || '').trim(),
+      releaseName: String(r[col.release] || '').trim()
+    });
+  }
+  return out;
+}
+
+/* MISSING: Normalize and de-duplicate executions */
+function getValidExecutions(executions){
+  const key = e => {
+    if (e.tceNum && String(e.tceNum).trim()) return `TCE||${e.storyNumber}||${e.tcName}||${e.tceNum}`;
+    return `ROW||${e.storyNumber}||${e.tcName}||${e.execAssigned||''}||${e.execStatus||''}||${e.editDate||''}`;
+  };
+  const map = new Map();
+  (executions||[]).forEach(e => {
+    if (!e) return;
+    if (!e.tcName && !e.tceNum) return;
+    const k = key(e); if (!map.has(k)) map.set(k, e);
+  });
+  return Array.from(map.values());
+}
+
+/* Helper normalization for matching Story + Test Case across reports */
+function normalizeStr(s){
+  return stripHtml(String(s ?? ''))
+    .replace(/\s+/g,' ')
+    .trim()
+    .toLowerCase();
+}
+function normalizeStoryId(storyNumber, storyName){
+  const n = String(storyNumber || '').trim();
+  const m1 = n.match(/stab\.\d+/i);
+  if (m1) return m1[0].toLowerCase();
+  const name = stripHtml(storyName || '');
+  const m2 = name.match(/stab\.\d+/i);
+  if (m2) return m2[0].toLowerCase();
+  return normalizeStr(n || name);
+}
+function makeTCKey(obj){
+  return `${normalizeStoryId(obj.storyNumber, obj.storyName)}||${normalizeStr(obj.tcName)}`;
+}
+// NEW: consider only real executions (exclude Not Started/No Status)
+function isRealExecutionStatus(status){
+  const s = String(status || '').trim().toLowerCase();
+  if (!s) return false;
+  if (s.includes('not started')) return false;
+  if (s === 'no status') return false;
+  return true; // <-- ensure true for real statuses
+}
+
+/* Unified processing of multiple report files */
+async function processReportFiles(files){
+  showProcessing();
+  try{
+    if (!files || !files.length) { hideProcessing(); showError('No files selected'); return; }
+    globalData = { stories:[], testCases:[], executions:[], defects:[], release:null };
+    defectsReportData = null;
+    storiesReportData = null;
+    let recognized = 0;
+
+    for (const file of files) {
+      const wb = await readWorkbook(file);
+      const type = detectReportType(wb);
+      if (!type) { console.warn('Unknown report type:', file.name); continue; }
+
+      // FIX: restore the missing condition for 'release'
+      if (type === 'release') {
+        recognized++;
+        const rel = parseReleaseReport(wb);
+        if (rel) globalData.release = rel;
+      } else if (type === 'stories') {
+        recognized++;
+        const stories = parseStoriesReport(wb);
+        storiesReportData = stories;
+        const byNum = new Map(globalData.stories.map(s => [s.storyNumber, s]));
+        stories.forEach(sr => {
+          const ex = byNum.get(sr.storyNumber);
+          if (ex) {
+            Object.assign(ex, {
+              storyName: sr.storyName || ex.storyName,
+              storyStatus: sr.storyStatus || ex.storyStatus,
+              owner: sr.owner || ex.owner,
+              assignee: sr.assignee || ex.assignee,
+              sprint: sr.sprint || ex.sprint,
+              totalTC: typeof sr.totalTC==='number' ? sr.totalTC : ex.totalTC,
+              totalExec: typeof sr.totalExec==='number' ? sr.totalExec : ex.totalExec,
+              totalDef: typeof sr.totalDef==='number' ? sr.totalDef : ex.totalDef,
+              createdBy: sr.createdBy || ex.createdBy,
+              releaseName: sr.releaseName || ex.releaseName
+            });
+          } else {
+            byNum.set(sr.storyNumber, {
+              storyNumber: sr.storyNumber,
+              storyName: sr.storyName,
+              storyStatus: sr.storyStatus,
+              createdBy: sr.createdBy,
+              assignee: sr.assignee,
+              owner: sr.owner,
+              impact: 'Unknown',
+              points: 0,
+              devBy: '',
+              lastModBy: '',
+              sprint: sr.sprint,
+              totalTC: sr.totalTC,
+              totalExec: sr.totalExec,
+              totalDef: sr.totalDef,
+              releaseName: sr.releaseName
+            });
+          }
+        });
+        globalData.stories = Array.from(byNum.values());
+      } else if (type === 'defects') {
+        recognized++;
+        const defects = parseDefectsReport(wb);
+        globalData.defects = globalData.defects.concat(defects);
+        defectsReportData = globalData.defects;
+      } else if (type === 'testcases') {
+        recognized++;
+        const tcs = parseTestCasesReport(wb);
+        globalData.testCases = globalData.testCases.concat(tcs);
+      } else if (type === 'executions') {
+        recognized++;
+        const execs = parseExecutionsReport(wb);
+        globalData.executions = globalData.executions.concat(execs);
+      }
+    }
+
+    if (recognized === 0) {
+      throw new Error('No recognized report types found. Export fresh CSV/XLSX reports with headers intact.');
+    }
+
+    // De-dupe
+    if (globalData.testCases.length){
+      const mapTC = new Map();
+      globalData.testCases.forEach(tc => {
+        const k = makeTCKey(tc); // CHANGED: normalized key
+        if (!mapTC.has(k)) mapTC.set(k, tc);
+      });
+      globalData.testCases = Array.from(mapTC.values());
+    }
+    if (globalData.executions.length){
+      globalData.executions = getValidExecutions(globalData.executions);
+    }
+
+    metrics = calculateMetrics(globalData);
+    renderDashboard();
+    hideProcessing();
+    showDashboard();
+  }catch(err){
+    console.error(err);
+    hideProcessing();
+    showError('Error processing reports: ' + err.message);
+  }
+}
+
+/* Metrics */
+function calculateMetrics(data){
+  const { stories, testCases, executions, defects, release } = data;
+  const totalStories = stories.length;
+  const totalPoints = stories.reduce((s,x)=>s+(x.points||0),0);
+  const totalTC = (testCases||[]).filter(tc => tc.tcName && tc.tcName.trim()).length;
+
+  const validExec = getValidExecutions(executions||[]);
+  const totalExec = validExec.length;
+
+  // CHANGED: prefer defects records count; fallback to story totals when no defects report
+  const storyDefSum = stories.reduce((sum, s) => sum + (s.totalDef || 0), 0);
+  const defectRecordCount = (defects||[]).length;
+  const totalDef = defectRecordCount > 0 ? defectRecordCount : storyDefSum;
+
+  const storiesWithTC = new Set();
+  // If TC report missing, use story.totalTC > 0 as coverage signal
+  if (totalTC > 0) {
+    (testCases||[]).forEach(tc => { if (tc.tcName && tc.storyNumber) storiesWithTC.add(tc.storyNumber); });
+  } else {
+    stories.forEach(s => { if ((s.totalTC||0) > 0) storiesWithTC.add(s.storyNumber); });
+  }
+
+  const statusDist = {}, impactDist={}, sprintDist={}, assigneeDist={}, pointsByStatus={};
+  for (const s of stories){
+    if (s.storyStatus) statusDist[s.storyStatus]=(statusDist[s.storyStatus]||0)+1;
+    if (s.impact) impactDist[s.impact]=(impactDist[s.impact]||0)+1;
+    if (s.sprint) sprintDist[s.sprint]=(sprintDist[s.sprint]||0)+1;
+    if (s.assignee) assigneeDist[s.assignee]=(assigneeDist[s.assignee]||0)+1;
+    if (s.storyStatus) pointsByStatus[s.storyStatus]=(pointsByStatus[s.storyStatus]||0)+(s.points||0);
+  }
+  const readyForProd = statusDist['Ready for Production Deployment']||0;
+
+  const coverage = totalStories ? ((storiesWithTC.size/totalStories)*100).toFixed(1) : '0.0';
+  const completion = totalStories ? ((readyForProd/totalStories)*100).toFixed(1) : '0.0';
+  const defectDensity = totalPoints>0 ? (totalDef/totalPoints).toFixed(2) : '0.00';
+
+  // Defects extras (safe if no defects report)
+  const severityDist = {}, complexityDist = {}, typeDist = {};
+  let closedDefectsCount = 0, mttrSum = 0, mttrN = 0, openAgeSum = 0, openN = 0;
+  const agingBuckets = { '0-3 days':0, '4-7 days':0, '8-14 days':0, '15+ days':0 };
+  const today = new Date();
+
+  (defects||[]).forEach(d => {
+    const sev = (d.severity || 'Unknown').trim() || 'Unknown';
+    const cpl = (d.complexity || 'Unknown').trim() || 'Unknown';
+    const typ = (d.type || 'Unknown').trim() || 'Unknown';
+    const st  = (d.defectStatus || 'Unknown').trim() || 'Unknown';
+    severityDist[sev] = (severityDist[sev]||0)+1;
+    complexityDist[cpl] = (complexityDist[cpl]||0)+1;
+    typeDist[typ] = (typeDist[typ]||0)+1;
+
+    const stLower = st.toLowerCase();
+    const isClosedLike = stLower.includes('closed') || stLower.includes('resolve') || stLower.includes('reject');
+    if (isClosedLike) {
+      closedDefectsCount++;
+      const cd = parseDMY(d.createdDate);
+      const ld = parseDMY(d.closedDate);
+      if (cd && ld) { mttrSum += Math.max(0,(ld-cd)/(1000*60*60*24)); mttrN++; }
+    } else {
+      let age = Number(d.daysSinceUpdate);
+      if (!(age > 0)) {
+        const cd = parseDMY(d.createdDate);
+        age = cd ? Math.max(0,(today-cd)/(1000*60*60*24)) : 0;
+      }
+      openAgeSum += age; openN++;
+      if (age <= 3) agingBuckets['0-3 days']++;
+      else if (age <= 7) agingBuckets['4-7 days']++;
+      else if (age <= 14) agingBuckets['8-14 days']++;
+      else agingBuckets['15+ days']++;
+    }
+  });
+
+  // Build execution-based metrics
+  const statusDistExec = {};
+  const byTC = new Map(); // key: story||tcName -> {count, statuses:Set, earliestStatus}
+  const execAgingBuckets = { '0-3 days':0, '4-7 days':0, '8-14 days':0, '15+ days':0 };
+
+  validExec.forEach(e=>{
+    const stRaw = String(e.execStatus||'No Status').trim();
+    const st = stRaw || 'No Status';
+    statusDistExec[st] = (statusDistExec[st]||0)+1;
+
+    const k = `${e.storyNumber||e.storyName||''}||${e.tcName||''}`;
+    let rec = byTC.get(k);
+    if (!rec){ rec = { count:0, statuses:new Set(), earliestStatus:null, earliestDate:null }; byTC.set(k, rec); }
+    rec.count++;
+    rec.statuses.add(st.toLowerCase());
+
+    // earliest exec status by date
+    const dt = parseDMY(e.editDate) || null;
+    if (!rec.earliestDate || (dt && dt < rec.earliestDate)){
+      rec.earliestDate = dt || rec.earliestDate;
+      rec.earliestStatus = st.toLowerCase();
+    }
+
+    // aging
+    let age = Number(e.ageDays);
+    if (!(age > 0)) {
+      const edt = parseDMY(e.editDate);
+      age = edt ? Math.max(0, (today - edt)/(1000*60*60*24)) : 0;
+    }
+    if (age <= 3) execAgingBuckets['0-3 days']++;
+    else if (age <= 7) execAgingBuckets['4-7 days']++;
+    else if (age <= 14) execAgingBuckets['8-14 days']++;
+    else execAgingBuckets['15+ days']++;
+  });
+
+  const passCount = Object.entries(statusDistExec).reduce((s,[k,v]) => s + (k.toLowerCase().includes('pass') ? v : 0), 0);
+  const execPassRate = totalExec ? (passCount/totalExec)*100 : 0;
+
+  // First Pass Yield: earliest execution outcome per test case
+  let fpyPass = 0, fpyTotal = 0, flaky = 0, multiExecTC = 0;
+  byTC.forEach(rec => {
+    if (rec.count>0){ fpyTotal++; if ((rec.earliestStatus||'').includes('pass')) fpyPass++; }
+    const hasPass = rec.statuses.has('passed') || rec.statuses.has('pass');
+    const hasFail = rec.statuses.has('failed') || rec.statuses.has('fail');
+    if (hasPass && hasFail) flaky++;
+    if (rec.count > 1) multiExecTC++;
+  });
+  const execFirstPassYield = fpyTotal ? (fpyPass/fpyTotal)*100 : 0;
+  const execFlakyCount = flaky;
+  const execReworkRate = fpyTotal ? (multiExecTC/fpyTotal)*100 : 0;
+
+  // Stories without tests by sprint
+  const missingTestsBySprint = {};
+  (stories||[]).forEach(s=>{
+    if (!((s.totalTC||0) > 0)) {
+      const sp = s.sprint || 'No Sprint';
+      missingTestsBySprint[sp] = (missingTestsBySprint[sp]||0)+1;
+    }
+  });
+
+  // Defect Severity Index (weighted average)
+  const sevWeights = { 'critical':4, 'high':3, 'medium':2, 'low':1 };
+  let sevSum = 0;
+  (defects||[]).forEach(d=>{
+    const w = sevWeights[String(d.severity||'').toLowerCase()] || 0;
+    sevSum += w;
+  });
+  const defectSevIndex = (defects||[]).length ? (sevSum/(defects.length)) : 0;
+
+  // Compute "defects by story" (prefer defects report, fallback to stories’ #Total Defects)
+  const defectsByStory = {};
+  if ((defects||[]).length){
+    defects.forEach(d=>{
+      const key = (d.storyName || d.storyNumber || 'Unknown Story').trim();
+      if (!key) return;
+      defectsByStory[key] = (defectsByStory[key]||0) + 1;
+    });
+  } else {
+    (stories||[]).forEach(s=>{
+      const cnt = Number(s.totalDef||0);
+      if (cnt > 0){
+        const key = (s.storyName || s.storyNumber || 'Unknown Story').trim();
+        defectsByStory[key] = (defectsByStory[key]||0) + cnt;
+      }
+    });
+  }
+
+  // NEW: release metrics
+  let releaseInfo = null;
+  if (release && release._plannedStart && release._plannedEnd) {
+    const today = new Date();
+    const totalDays = Math.max(1, daysBetween(new Date(release._plannedEnd), new Date(release._plannedStart)));
+    const elapsedDays = Math.min(totalDays, Math.max(0, daysBetween(new Date(today), new Date(release._plannedStart))));
+    const timelineProgress = (elapsedDays/totalDays)*100;
+
+    const execProgress = totalTC ? (totalExec/totalTC)*100 : 0;
+    const scheduleVariance = execProgress - timelineProgress; // + ahead, - behind
+
+    const daysRemain = Math.max(0, daysBetween(new Date(release._plannedEnd), new Date(today)));
+
+    releaseInfo = {
+      name: release.name,
+      owner: release.owner,
+      createdBy: release.createdBy,
+      // Use raw values for display; parser handles formatting or falls back to raw
+      plannedRangeText: buildRangeText(release.plannedStart, release.plannedEnd),
+      actualStartText: fmtDate(release.actualStart || ''),
+      actualEndText: fmtDate(release.actualEnd || ''),
+      keyDeliverables: release.keyDeliverables || '-',
+      objectives: release.objectives || '-',
+      daysRemaining: daysRemain,
+      timelineProgress,
+      scheduleVariance,
+      onTrackText: scheduleVariance >= -10 ? 'On Track' : 'Behind'
+    };
+  } else {
+    // Fallback when Release report is missing or dates are not provided
+    // 1) Pick most common release name across all uploaded rows
+    const nameCount = {};
+    (stories||[]).forEach(s => { const n=(s.releaseName||'').trim(); if(n) nameCount[n]=(nameCount[n]||0)+1; });
+    (testCases||[]).forEach(tc => { const n=(tc.releaseName||'').trim(); if(n) nameCount[n]=(nameCount[n]||0)+1; });
+    (validExec||[]).forEach(e => { const n=(e.releaseName||'').trim(); if(n) nameCount[n]=(nameCount[n]||0)+1; });
+    const fallbackName = Object.keys(nameCount).sort((a,b)=> (nameCount[b]-nameCount[a]))[0] || (release?.name || '');
+
+    // 2) Derive actual start/end from earliest/latest dates in data (best-effort)
+    const dateBucket = [];
+    (stories||[]).forEach(s => { const d=parseDMY(s.createdDate); if(d) dateBucket.push(d); });
+    (testCases||[]).forEach(tc => { const d=parseDMY(tc.tcCreatedDate); if(d) dateBucket.push(d); });
+    (validExec||[]).forEach(e => { const d=parseDMY(e.editDate); if(d) dateBucket.push(d); });
+
+    const minDate = dateBucket.length ? new Date(Math.min(...dateBucket.map(d=>d.getTime()))) : null;
+    const maxDate = dateBucket.length ? new Date(Math.max(...dateBucket.map(d=>d.getTime()))) : null;
+
+    releaseInfo = {
+      name: fallbackName || 'Release',
+      owner: release?.owner || '',
+      createdBy: release?.createdBy || '',
+      plannedRangeText: '-',                // unknown without Release report
+      actualStartText: (release && release._actualStart) ? fmtDate(release._actualStart) : '-',
+      actualEndText: (release && release._actualEnd) ? fmtDate(release._actualEnd) : '-',
+      keyDeliverables: release?.keyDeliverables || '-',
+      objectives: release?.objectives || '-',
+      daysRemaining: '-',                   // cannot compute without planned end
+      timelineProgress: 0,                  // cannot compute without planned dates
+      scheduleVariance: 0,
+      onTrackText: 'Unknown'
+    };
+  }
+
+  return {
+    totalStories, totalPoints, totalTC, totalExec, totalDef,
+    coverage, completion, defectDensity,
+    statusDist, impactDist, sprintDist, assigneeDist, pointsByStatus,
+    execAssigneeDist: (function(){
+      const m = {}; validExec.forEach(e=>{
+        const who = (e.execAssigned && e.execAssigned.trim()) || '(unassigned)';
+        m[who]=(m[who]||0)+1;
+      }); return m;
+    })(),
+    closedDefectsCount,
+    mttrDays: mttrN ? (mttrSum/mttrN) : 0,
+    openAvgSinceUpdate: openN ? (openAgeSum/openN) : 0,
+    openAgingBuckets: agingBuckets,
+    severityDist, complexityDist, typeDist,
+    // NEW fields
+    execStatusDist: statusDistExec,
+    execPassRate, execFirstPassYield, execFlakyCount, execReworkRate,
+    execAgingBuckets: execAgingBuckets,
+    missingTestsBySprint,
+    defectSevIndex,
+    defectsByStory,
+    releaseInfo,
+    refs: {}
+  };
+}
+
+/* MISSING: minimal render helpers and burndown renderer */
+function renderDonutChart(containerId, data, colors){
+  const el = gid(containerId); if (!el) return;
+  const entries = Object.entries(data||{}).filter(([,v])=>v>0);
+  if (!entries.length){ el.innerHTML = '<div class="small" style="text-align:center;padding:20px">No data</div>'; return; }
+  entries.sort((a,b)=>b[1]-a[1]);
+  const total = entries.reduce((s,[,v])=>s+v,0);
+  let html = '<div style="padding:12px">';
+  entries.forEach(([k,v],i)=>{
+    const pct = total?((v/total)*100).toFixed(1):0;
+    const color = (colors && colors[k]) || ['#3b82f6','#10b981','#f59e0b','#8b5cf6','#ef4444','#06b6d4','#ec4899','#14b8a6','#f97316','#6366f1'][i%10];
+    const label = k.length>48 ? k.slice(0,48)+'…' : k;
+    html += `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px">
+        <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">
+          <div style="width:14px;height:14px;background:${color};border-radius:3px"></div>
+          <span style="font-weight:600;color:#374151;word-break:break-word" title="${k}">${label}</span>
+        </div>
+        <div style="display:flex;gap:8px">
+          <span style="color:#6b7280;font-size:.85rem">${pct}%</span>
+          <span style="font-weight:800;color:#111827">${v}</span>
+        </div>
+      </div>`;
+  });
+  html += '</div>'; el.innerHTML = html;
+}
+function renderChart(containerId, data){
+  const el = gid(containerId); if (!el) return;
+  const entries = Object.entries(data||{}).filter(([,v])=>v>0);
+  if (!entries.length){ el.innerHTML = '<div class="small" style="padding:20px;text-align:center">No data</div>'; return; }
+  const max = Math.max(...entries.map(([,v])=>v));
+  let html = '<div style="padding:8px">';
+  entries.sort((a,b)=>b[1]-a[1]).forEach(([k,v])=>{
+    const pct = max? (v/max)*100 : 0;
+    const label = k.length>48 ? k.slice(0,48)+'…' : k;
+    html += `
+      <div style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px;gap:8px">
+          <span style="font-weight:600;color:#374151;word-break:break-word" title="${k}">${label}</span>
+          <span style="font-weight:800;color:#111827">${v}</span>
+        </div>
+        <div style="background:#e5e7eb;border-radius:6px;height:8px">
+          <div style="background:#6366f1;height:100%;width:${pct}%;border-radius:6px"></div>
+        </div>
+      </div>`;
+  });
+  html += '</div>'; el.innerHTML = html;
+}
+// NEW: render chart including zero values (keeps entries with 0)
+function renderChartIncludingZeros(containerId, data){
+  const el = gid(containerId); if (!el) return;
+  const entries = Object.entries(data || {});
+  if (!entries.length){ el.innerHTML = '<div class="small" style="text-align:center;padding:20px">No data</div>'; return; }
+  const max = Math.max(0, ...entries.map(([,v]) => Number(v) || 0));
+  let html = '<div style="padding:8px">';
+  entries.sort((a,b)=> (b[1]-a[1])).forEach(([k,v])=>{
+    const val = Number(v) || 0;
+    const pct = max ? (val/max)*100 : 0;
+    const label = k.length>48 ? k.slice(0,48)+'…' : k;
+    html += `
+      <div style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px;gap:8px">
+          <span style="font-weight:600;color:#374151;word-break:break-word" title="${k}">${label}</span>
+          <span style="font-weight:800;color:#111827">${val}</span>
+        </div>
+        <div style="background:#e5e7eb;border-radius:6px;height:8px">
+          <div style="background:#6366f1;height:100%;width:${pct}%;border-radius:6px"></div>
+        </div>
+      </div>`;
+  });
+  html += '</div>'; el.innerHTML = html;
+}
+
+/* ADD: missing helpers used by renderDashboard */
+
+// Mini status table by assignee
+function renderExecStatusByAssigneeMini(containerId){
+  const el = gid(containerId); if (!el) return;
+  const executions = getValidExecutions(globalData.executions||[]);
+  if (!executions.length){ el.innerHTML = '<div class="small" style="padding:12px">No execution data</div>'; return; }
+
+  const byA = {};
+  executions.forEach(e=>{
+    const a = (e.execAssigned||'(unassigned)').trim();
+    const s = (e.execStatus||'No Status').trim().toLowerCase();
+    if (!byA[a]) byA[a] = { total:0, pass:0, fail:0, block:0, prog:0, notStarted:0, none:0 };
+    byA[a].total++;
+    if (s.includes('pass')) byA[a].pass++;
+    else if (s.includes('fail')) byA[a].fail++;
+    else if (s.includes('block')) byA[a].block++;
+    else if (s.includes('not started')) byA[a].notStarted++;
+    else if (s.includes('progress')) byA[a].prog++;
+    else byA[a].none++;
+  });
+
+  const rows = Object.entries(byA).sort((a,b)=>b[1].total-a[1].total);
+  let html = '<div class="chart-body" style="overflow:auto"><table><thead><tr>'
+    + '<th style="text-align:left">Assignee</th>'
+    + '<th>Pass</th><th>Fail</th><th>Block</th><th>Not Started</th><th>In Prog</th><th>No Status</th><th>Total</th>'
+    + '</tr></thead><tbody>';
+  rows.forEach(([name,m])=>{
+    html += `<tr>
+      <td style="text-align:left">${name}</td>
+      <td>${m.pass}</td>
+      <td>${m.fail}</td>
+      <td>${m.block}</td>
+      <td>${m.notStarted}</td>
+      <td>${m.prog}</td>
+      <td>${m.none}</td>
+      <td><b>${m.total}</b></td>
+    </tr>`;
+  });
+  html += '</tbody></table></div>';
+  el.innerHTML = html;
+}
+
+// Workload balance donut
+function renderTestWorkloadBalanceDonut(containerId, assigneeDist){
+  const entries = Object.entries(assigneeDist||{});
+  const el = gid(containerId); if (!el) return;
+  if (!entries.length){ el.innerHTML = '<div class="small" style="padding:20px;text-align:center">No workload data</div>'; return; }
+  const vals = entries.map(([,v])=>Number(v)||0);
+  const avg = vals.reduce((s,v)=>s+v,0)/vals.length;
+  const buckets = {
+    'Overloaded (>150% avg)':0,'High (125-150% avg)':0,'Balanced (75-125% avg)':0,'Low (<75% avg)':0
+  };
+  entries.forEach(([,v])=>{
+    const r = avg ? v/avg : 0;
+    if (r>1.5) buckets['Overloaded (>150% avg)']++;
+    else if (r>1.25) buckets['High (125-150% avg)']++;
+    else if (r>=0.75) buckets['Balanced (75-125% avg)']++;
+    else buckets['Low (<75% avg)']++;
+  });
+  renderDonutChart(containerId, buckets, {
+    'Overloaded (>150% avg)':'#ef4444','High (125-150% avg)':'#f59e0b','Balanced (75-125% avg)':'#10b981','Low (<75% avg)':'#6b7280'
+  });
+  el.innerHTML += `<div class="small" style="text-align:center;padding:8px;border-top:1px solid #e5e7eb">Average: <b>${avg.toFixed(1)}</b> executions/person</div>`;
+}
+
+// Coverage heatmap donut by sprint
+function renderTestCoverageHeatmap(containerId){
+  const el = gid(containerId); if (!el) return;
+  const stories = globalData.stories||[];
+  if (!stories.length){ el.innerHTML = '<div class="small" style="padding:20px;text-align:center">No story data</div>'; return; }
+  const bySprint = {};
+  stories.forEach(s=>{
+    const sprint = s.sprint||'No Sprint';
+    bySprint[sprint] = bySprint[sprint]||{ stories:0, withTests:0, totalTests:0 };
+    bySprint[sprint].stories++;
+    bySprint[sprint].totalTests += (s.totalTC||0);
+    if ((s.totalTC||0)>0) bySprint[sprint].withTests++;
+  });
+  const donutData = {}, colors = {};
+  Object.entries(bySprint).forEach(([sprint, d])=>{
+    const cov = d.stories? (d.withTests/d.stories)*100 : 0;
+    donutData[sprint] = d.totalTests;
+    colors[sprint] = cov>=80?'#10b981': cov>=60?'#f59e0b':'#ef4444';
+  });
+  renderDonutChart(containerId, donutData, colors);
+  const totStories = Object.values(bySprint).reduce((s,d)=>s+d.stories,0);
+  const withTests = Object.values(bySprint).reduce((s,d)=>s+d.withTests,0);
+  const overall = totStories? ((withTests/totStories)*100).toFixed(1) : '0.0';
+  el.innerHTML += `<div class="small" style="text-align:center;padding:8px;border-top:1px solid #e5e7eb">Overall Coverage: <b>${overall}%</b> (${withTests}/${totStories})</div>`;
+}
+
+// Defects table renderer
+function renderDefectsTable(containerId){
+  const el = gid(containerId); if (!el) return;
+  const defects = globalData.defects||[];
+  if (!defects.length){ el.innerHTML = '<div class="small" style="padding:20px;text-align:center">No defect data</div>'; return; }
+  const rows = defects.map(d=>({
+    defectNum:d.defectNum||d.defectName||'',
+    storyName:d.storyName||'',
+    createdBy:d.defectCreatedBy||'',
+    assignedTo:d.defectAssignedTo||'',
+    status:d.defectStatus||''
+  })).sort((a,b)=>String(a.defectNum).localeCompare(String(b.defectNum),undefined,{numeric:true}));
+  let html = '<div style="max-height:480px;overflow:auto;border:1px solid var(--card-border);border-radius:6px"><table><thead><tr><th>Defect Number</th><th>Story</th><th>Created By</th><th>Assigned To</th><th>Status</th></tr></thead><tbody>';
+  rows.forEach(r=>{
+    html += `<tr><td>${r.defectNum}</td><td>${r.storyName}</td><td>${r.createdBy}</td><td>${r.assignedTo}</td><td>${r.status}</td></tr>`;
+  });
+  html += '</tbody></table></div>'; el.innerHTML = html;
+}
+
+// Add: Data Quality helper used by renderDashboard
+function renderDataQuality(){
+  const el = gid('dqContainer'); if (!el) return;
+  const { stories = [], defects = [] } = globalData;
+
+  const storiesWithoutTCCount = stories.filter(s => (s.totalTC || 0) === 0).length;
+  const openDefectsCount = defects.filter(d => {
+    const st = (d.defectStatus || '').toLowerCase();
+    return st && !(st.includes('closed') || st.includes('resolve') || st.includes('reject'));
+  }).length;
+
+  el.innerHTML = `
+    <div class="${storiesWithoutTCCount ? 'issue' : 'success'}" style="margin-bottom:8px">
+      ${storiesWithoutTCCount ? `<b>${storiesWithoutTCCount}</b> stories without test cases` : '✅ All stories have test cases'}
+    </div>
+    <div class="${defects.length ? 'success' : 'warn'}">
+      ${defects.length ? `<b>${openDefectsCount}</b> open defects out of <b>${defects.length}</b> total` : 'No defects uploaded'}
+    </div>`;
+}
+
+// NEW: render table of test cases without executions
+function renderNoExecTests(containerId, items){
+  const el = gid(containerId); if (!el) return;
+  const allTC = globalData.testCases || [];
+  if (!allTC.length){
+    el.innerHTML = '<div class="small" style="padding:20px;text-align:center">No test cases report uploaded</div>';
+    return;
+  }
+
+  // Use provided list if passed, else compute test cases WITHOUT any executions
+  let missing = Array.isArray(items) ? items : null;
+  if (!missing){
+    const executions = getValidExecutions(globalData.executions||[]);
+    const execKeys = new Set(executions.map(e => makeTCKey(e))); // consider all executions regardless of status
+    missing = allTC.filter(tc => !execKeys.has(makeTCKey(tc)));
+  }
+
+  if (!missing.length){
+    el.innerHTML = '<div class="small" style="padding:20px;text-align:center">Great! Every test case has at least one execution.</div>';
+    return;
+  }
+
+  // Sort by Story then by Test Case (normalized)
+  missing.sort((a,b)=>{
+    const sa = normalizeStoryId(a.storyNumber,a.storyName).localeCompare(
+      normalizeStoryId(b.storyNumber,b.storyName), undefined, {numeric:true}
+    );
+    if (sa !== 0) return sa;
+    return normalizeStr(a.tcName).localeCompare(normalizeStr(b.tcName), undefined, {numeric:true});
+  });
+
+  let html = '<div style="max-height:420px;overflow:auto;border:1px solid var(--card-border);border-radius:6px">';
+  html += '<table><thead><tr><th>Story</th><th>Test Case</th></tr></thead><tbody>';
+  missing.forEach(tc=>{
+    html += `<tr>
+      <td>${tc.storyName || tc.storyNumber || ''}</td>
+      <td>${tc.tcName || ''}</td>
+    </tr>`;
+  });
+  html += '</tbody></table></div>';
+  el.innerHTML = html;
+}
+
+// NEW: render table of stories without test cases (safe if container missing)
+function renderStoriesWithoutTests(containerId){
+  const el = gid(containerId); if (!el) return; // allow call even if UI element is not present
+  const stories = globalData.stories || [];
+  if (!stories.length){
+    el.innerHTML = '<div class="small" style="padding:20px;text-align:center">No stories report uploaded</div>';
+    return;
+  }
+  const tcs = globalData.testCases || [];
+  let missing = [];
+  if (tcs.length){
+    const haveTC = new Set();
+    tcs.forEach(tc => haveTC.add(normalizeStoryId(tc.storyNumber, tc.storyName)));
+    missing = stories.filter(s => !haveTC.has(normalizeStoryId(s.storyNumber, s.storyName)));
+  } else {
+    missing = stories.filter(s => (s.totalTC || 0) === 0);
+  }
+  if (!missing.length){
+    el.innerHTML = '<div class="small" style="padding:20px;text-align:center">Great! Every story has at least one test case.</div>';
+    return;
+  }
+  // Sort by Sprint then Story
+  missing.sort((a,b)=>{
+    const sa = String(a.sprint||'').localeCompare(String(b.sprint||''), undefined, {numeric:true});
+    if (sa !== 0) return sa;
+    const an = a.storyName || a.storyNumber || '';
+    const bn = b.storyName || b.storyNumber || '';
+    return an.localeCompare(bn, undefined, {numeric:true});
+  });
+  let html = '<div style="max-height:420px;overflow:auto;border:1px solid var(--card-border);border-radius:6px">';
+  html += '<table><thead><tr><th>Story</th><th>Sprint</th><th>Owner</th></tr></thead><tbody>';
+  missing.forEach(s=>{
+    html += `<tr>
+      <td>${s.storyName || s.storyNumber || ''}</td>
+      <td>${s.sprint || ''}</td>
+      <td>${s.owner || s.assignee || ''}</td>
+    </tr>`;
+  });
+  html += '</tbody></table></div>';
+  el.innerHTML = html;
+}
+
+/* RESTORED: render dashboard to update UI */
+function renderDashboard(){
+  // NEW: Release Overview render
+  if (metrics.releaseInfo){
+    gid('releaseSection').style.display = '';
+    setTxt('rName', metrics.releaseInfo.name || '-');
+    setTxt('rOwner', metrics.releaseInfo.owner || '-');
+    setTxt('rCreatedBy', metrics.releaseInfo.createdBy || '-');
+    setTxt('rPlanRange', metrics.releaseInfo.plannedRangeText || '-');
+    setTxt('rActualStart', metrics.releaseInfo.actualStartText || '-');
+    setTxt('rActualEnd', metrics.releaseInfo.actualEndText || '-');
+    setTxt('rDeliverables', metrics.releaseInfo.keyDeliverables || '-');
+    setTxt('rObjectives', metrics.releaseInfo.objectives || '-');
+    setTxt('rTimelinePct', (metrics.releaseInfo.timelineProgress||0).toFixed(1) + '%');
+    setTxt('rDaysRemain', metrics.releaseInfo.daysRemaining);
+    const sv = (metrics.releaseInfo.scheduleVariance||0).toFixed(1);
+    setTxt('rScheduleVar', (sv>0?'+':'') + sv + '%');
+    setTxt('rOnTrack', metrics.releaseInfo.onTrackText);
+  } else {
+    const sec = gid('releaseSection'); if (sec) sec.style.display = 'none';
+  }
+
+  // Cards
+  setTxt('mStories', metrics.totalStories);
+  setTxt('mPoints', metrics.totalPoints);
+  setTxt('mTC', metrics.totalTC);
+  setTxt('mExec', metrics.totalExec);
+  setTxt('mDef', metrics.totalDef);
+
+  // Executions breakdown
+  const executions = getValidExecutions(globalData.executions||[]);
+  const passed = executions.filter(e=> (e.execStatus||'').toLowerCase().includes('pass')).length;
+  const failed = executions.filter(e=> (e.execStatus||'').toLowerCase().includes('fail')).length;
+  const blocked = executions.filter(e=> (e.execStatus||'').toLowerCase().includes('block')).length;
+  const notStarted = executions.filter(e=> (e.execStatus||'').toLowerCase().includes('not started')).length;
+  const inProgress = executions.filter(e=> (e.execStatus||'').toLowerCase().includes('progress')).length;
+
+  setTxt('mPassed', passed);
+  setTxt('mFailed', failed);
+  setTxt('mBlocked', blocked);
+  setTxt('mNotStarted', notStarted);
+  setTxt('mInProgress', inProgress);
+  setTxt('mCov', metrics.coverage + '%');
+  setTxt('mCompl', metrics.completion + '%');
+
+  // User Stories segment
+  const stories = globalData.stories||[];
+  const storiesWithoutTC = stories.filter(s => (s.totalTC||0)===0);
+  const highImpactCount = stories.filter(s => (s.impact==='High' || s.impact==='Critical')).length;
+  setTxt('storyTotal', metrics.totalStories);
+  setTxt('storyAvgPoints', (metrics.totalStories? (metrics.totalPoints/metrics.totalStories).toFixed(1):'0.0'));
+  setTxt('storyNoTests', storiesWithoutTC.length);
+  setTxt('storyHighImpact', highImpactCount);
+
+  renderDonutChart('storyStatusChart', metrics.statusDist, {
+    'Ready for Production Deployment':'#10b981','Development In Progress':'#f59e0b','Ready for Testing':'#3b82f6','Ready for Development':'#8b5cf6'
+  });
+  renderDonutChart('storySprintChart', metrics.sprintDist, {});
+  renderChart('defectCountByStoryChart', metrics.defectsByStory || {});
+
+  // Tests & Executions segment
+  setTxt('testTotal', metrics.totalTC);
+  setTxt('execTotal', metrics.totalExec);
+  const uniqueTC = new Set((globalData.testCases||[]).map(makeTCKey)).size;
+  const execPerTest = uniqueTC ? (metrics.totalExec/uniqueTC).toFixed(1) : '0.0';
+  const execCov = metrics.totalTC? ((metrics.totalExec/metrics.totalTC)*100).toFixed(1) : '0.0';
+  setTxt('execCoverage', execCov + '%');
+  setTxt('execUnassigned', executions.filter(e => !(e.execAssigned||'').trim()).length);
+  setTxt('execPassed', passed);
+  setTxt('execFailed', failed);
+  setTxt('execBlocked', blocked);
+  setTxt('execPerTest', execPerTest);
+
+  // Tests with executions
+  (function(){
+    const allExec = getValidExecutions(globalData.executions||[]);
+    const execKeys = new Set(allExec.map(e => makeTCKey(e))); // consider any execution row as execution
+    const tests = globalData.testCases || [];
+    const noExec = tests.filter(tc => !execKeys.has(makeTCKey(tc)));
+    setTxt('testsNoExec', noExec.length);
+    renderNoExecTests('noExecTestsChart', noExec);
+  })();
+
+  // Advanced KPIs
+  setTxt('execPassRate', (metrics.execPassRate||0).toFixed(1) + '%');
+  setTxt('execFPY', (metrics.execFirstPassYield||0).toFixed(1) + '%');
+  setTxt('execFlaky', metrics.execFlakyCount || 0);
+  setTxt('execReworkRate', (metrics.execReworkRate||0).toFixed(1) + '%');
+
+  // Render execution charts
+  renderExecStatusByAssigneeMini('execStatusByAssigneeMini');
+  
+  const statusDist = {};
+  executions.forEach(e=>{
+    const st = (e.execStatus||'No Status').trim();
+    statusDist[st] = (statusDist[st]||0)+1;
+  });
+  renderDonutChart('execStatusChart', statusDist, {
+    'Passed':'#10b981','Failed':'#ef4444','Blocked':'#f59e0b','In Progress':'#6366f1','Not Started':'#6b7280','No Status':'#94a3b8'
+  });
+
+  renderDonutChart('execByAssigneeChart', metrics.execAssigneeDist||{}, {});
+  renderTestWorkloadBalanceDonut('testWorkloadChart', metrics.execAssigneeDist||{});
+  renderTestCoverageHeatmap('testCoverageHeatmapChart');
+
+  // Test Cases by Story
+  const tcByStory = {};
+  const storiesList = globalData.stories || [];
+  const tcsList = globalData.testCases || [];
+
+  if (tcsList.length){
+    storiesList.forEach(s=>{
+      const key = s.storyName || s.storyNumber || 'Unknown Story';
+      if (!(key in tcByStory)) tcByStory[key] = 0;
+    });
+    tcsList.forEach(tc=>{
+      const key = tc.storyName || tc.storyNumber || 'Unknown Story';
+      tcByStory[key] = (tcByStory[key] || 0) + 1;
+    });
+  } else {
+    storiesList.forEach(s=>{
+      const key = s.storyName || s.storyNumber || 'Unknown Story';
+      tcByStory[key] = Number(s.totalTC || 0);
+    });
+  }
+  renderChartIncludingZeros('testCasesByStoryChart', tcByStory);
+
+  // Defects segment
+  const defects = globalData.defects||[];
+  setTxt('defectTotal', metrics.totalDef);
+  setTxt('defectDensityVal', metrics.defectDensity);
+  const criticalDefects = defects.filter(d => String(d.severity||'').toLowerCase()==='critical').length;
+  setTxt('defectCritical', criticalDefects);
+  const openDefectsCount = defects.filter(d=>{
+    const st=(d.defectStatus||'').toLowerCase();
+    return st && !(st.includes('closed')||st.includes('resolve')||st.includes('reject'));
+  }).length;
+  setTxt('defectOpen', openDefectsCount);
+  setTxt('defectPerStory', (metrics.totalStories? (metrics.totalDef/metrics.totalStories).toFixed(1) : '0.0'));
+  setTxt('defectClosed', metrics.closedDefectsCount||0);
+  setTxt('defectMTTR', (metrics.mttrDays||0).toFixed(1));
+  setTxt('defectOpenAvgAge', (metrics.openAvgSinceUpdate||0).toFixed(1));
+
+  const defectStatusDist = {};
+  defects.forEach(d=>{
+    const st = (d.defectStatus||'Unknown').trim();
+    defectStatusDist[st]=(defectStatusDist[st]||0)+1;
+  });
+  renderDonutChart('defectStatusChart', defectStatusDist, {});
+  renderDonutChart('defectSeverityChart', metrics.severityDist||{}, {
+    'Critical':'#dc2626','High':'#ea580c','Medium':'#f59e0b','Low':'#10b981','Unknown':'#6b7280'
+  });
+  renderDonutChart('defectComplexityChart', metrics.complexityDist||{}, {
+    'Small':'#60a5fa','Medium':'#6366f1','Large':'#8b5cf6','Unknown':'#6b7280','':'#6b7280'
+  });
+  renderDonutChart('defectTypeChart', metrics.typeDist||{}, {});
+  renderDonutChart('defectAgingChart', metrics.openAgingBuckets||{}, {
+    '0-3 days':'#22c55e','4-7 days':'#84cc16','8-14 days':'#f59e0b','15+ days':'#ef4444'
+  });
+  renderDefectsTable('defectsByStoryChart');
+
+  // Data Quality
+  renderDataQuality();
+  renderDonutChart('missingTestsBySprintChart', metrics.missingTestsBySprint||{}, {});
+  setTxt('defectSevIdx', (metrics.defectSevIndex||0).toFixed(2));
+}
+
+// NEW: simple HTML exporter used by the Export button
+function exportHTML(){
+  try{
+    const html = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+    const blob = new Blob([html], { type:'text/html;charset=utf-8' });
+    const a = document.createElement('a');
+    const ts = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+    a.download = `release-dashboard-${ts}.html`;
+    a.href = URL.createObjectURL(blob);
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 0);
+  } catch (e){
+    showError('Export failed: ' + e.message);
+  }
+}
 </script>
 </body>
 </html>
