@@ -169,8 +169,8 @@
   <div class="upload">
     <div class="upload-area" onclick="document.getElementById('fileInput').click()">
       <div style="font-size:2rem">📁</div>
-      <div style="font-weight:700;margin-top:6px">Add Reports for Release, User Stories, Test Cases, Test Executions and Defects</div>
-      <div class="small">Select 1–5 .xls/.xlsx/.csv files — the app will auto-detect report types</div>
+      <div style="font-weight:700;margin-top:6px">Add Reports for Release, User Stories, Test Cases, Test Executions, Defects and Production Defects</div>
+      <div class="small">Select 1–6 .xls/.xlsx/.csv files — the app will auto-detect report types</div>
       <input id="fileInput" type="file" accept=".xlsx,.xls,.csv" multiple style="display:none"
              onchange="if(this.files && this.files.length){ processReportFiles(Array.from(this.files)).finally(()=>{ this.value=''; }); }"/>
     </div>
@@ -239,6 +239,7 @@
       <div class="card pink"><div class="icon">📊</div><div><div class="h">Coverage</div><div id="mCov" class="v">0%</div><div class="small">percent of stories with at least one test case</div></div></div>
       <div class="card gray"><div class="icon">🎯</div><div><div class="h">Completion</div><div id="mCompl" class="v">0%</div><div class="small">percent of stories ready for production</div></div></div>
       <div class="card red"><div class="icon">🐛</div><div><div class="h">Defects</div><div id="mDef" class="v">0</div><div class="small">count of defect records</div></div></div>
+      <div class="card red"><div class="icon">🔴</div><div><div class="h">Production Defects</div><div id="mProdDef" class="v">0</div><div class="small">count of production defect records</div></div></div>
     </div>
 
     <!-- User Stories Analysis (collapsible) -->
@@ -396,6 +397,33 @@
       </div>
     </details>
 
+    <!-- Production Defects Analysis (collapsible) -->
+    <details id="productionDefectsSection" class="collapse" style="display:none">
+      <summary><span>🔴 Production Defects Analysis</span><span class="chev">▸</span></summary>
+      <div class="content">
+        <div class="grid two">
+          <div>
+            <h4 style="color:var(--muted-2);margin-bottom:8px">🔴 Production Defect Metrics</h4>
+            <div style="background:#f9fafb;padding:12px;border-radius:8px;border:1px solid #e5e7eb">
+              <div style="margin-bottom:6px">Total Production Defects: <span id="prodDefectTotal" style="color:var(--red);font-weight:700">0</span></div>
+              <div style="margin-bottom:6px">With Test Case: <span id="prodDefectWithTC" style="color:var(--green);font-weight:700">0</span></div>
+              <div>Test Case Coverage: <span id="prodDefectCoverage" style="color:var(--blue);font-weight:700">0%</span></div>
+            </div>
+          </div>
+          <div class="chart">
+            <div class="chart-explainer">Displays the distribution of production defects by their current status.</div>
+            <div class="h">🔴 Production Defects by Status</div>
+            <div id="prodDefectStatusChart" class="chart-body"></div>
+          </div>
+          <div class="chart" style="grid-column:1 / -1">
+            <div class="chart-explainer">Lists all production defects with their status and associated test case.</div>
+            <div class="h">📊 Production Defects Details</div>
+            <div id="prodDefectsTableChart" class="chart-body"></div>
+          </div>
+        </div>
+      </div>
+    </details>
+
     <!-- Comparison (collapsible; still controlled by JS visibility) -->
     <details id="comparisonSection" class="collapse" style="display:none">
       <summary><span>📊 Differences Between Uploaded Files</span><span class="chev">▸</span></summary>
@@ -432,7 +460,7 @@
 <script>
 /* ===== Compact core app script (single copy) ===== */
 
-let globalData = { stories:[], testCases:[], executions:[], defects:[], release:null };
+let globalData = { stories:[], testCases:[], executions:[], defects:[], release:null, productionDefects:[] };
 let metrics = {};
 let defectsReportData = null;
 let storiesReportData = null;
@@ -506,6 +534,13 @@ function detectReportType(workbook){
     if (header.some(h=>h.includes('release: release name')) &&
         (header.some(h=>h.includes('planned start date')) || header.some(h=>h.includes('planned end date')))) {
       return 'release';
+    }
+    // Production Defects report (more tolerant)
+    const hasProdDefName = header.some(h => (h.includes('production defect') || h.includes('prod defect')) && h.includes('name'));
+    const hasReleaseCol = header.some(h => h.includes('release: release name') || h.includes('release:release name') || h.includes('release name') || h === 'release');
+    const hasStatusCol = header.some(h => h.includes('status'));
+    if (hasProdDefName && hasReleaseCol && hasStatusCol) {
+      return 'productiondefects';
     }
     // Defects report
     if (header.some(h=>h.includes('defect number')) && header.some(h=>h.includes('defect name'))) {
@@ -934,7 +969,7 @@ async function processReportFiles(files){
   showProcessing();
   try{
     if (!files || !files.length) { hideProcessing(); showError('No files selected'); return; }
-    globalData = { stories:[], testCases:[], executions:[], defects:[], release:null };
+    globalData = { stories:[], testCases:[], executions:[], defects:[], release:null, productionDefects:[] };
     defectsReportData = null;
     storiesReportData = null;
     let recognized = 0;
@@ -944,11 +979,14 @@ async function processReportFiles(files){
       const type = detectReportType(wb);
       if (!type) { console.warn('Unknown report type:', file.name); continue; }
 
-      // FIX: restore the missing condition for 'release'
       if (type === 'release') {
         recognized++;
         const rel = parseReleaseReport(wb);
         if (rel) globalData.release = rel;
+      } else if (type === 'productiondefects') {
+        recognized++;
+        const prodDefects = parseProductionDefectsReport(wb);
+        globalData.productionDefects = globalData.productionDefects.concat(prodDefects);
       } else if (type === 'stories') {
         recognized++;
         const stories = parseStoriesReport(wb);
@@ -1034,9 +1072,52 @@ async function processReportFiles(files){
   }
 }
 
+/* NEW: Parse Production Defects report */
+function parseProductionDefectsReport(workbook){
+  const ws = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
+  let headerRow = -1;
+  for (let i=0;i<rows.length;i++){
+    const r = rows[i]||[];
+    const ok = r.some(c => {
+      const s = String(c||'').toLowerCase();
+      return s.includes('production defect') && s.includes('name');
+    }) && r.some(c => {
+      const s = String(c||'').toLowerCase();
+      return s.includes('release') && s.includes('name');
+    });
+    if (ok){ headerRow=i; break; }
+  }
+  if (headerRow === -1) throw new Error('Could not find production defects report header row');
+
+  const hdr = rows[headerRow] || [];
+  const col = {};
+  hdr.forEach((h, idx) => {
+    const tl = String(h||'').toLowerCase().trim().replace(/\s+/g,' ');
+    if ((tl.includes('release') && tl.includes('name')) || tl === 'release') col.release = idx;
+    if ((tl.includes('production defect') && tl.includes('name')) || tl.includes('prod defect')) col.defectName = idx;
+    if (tl.includes('status')) col.status = idx;
+    if (tl.includes('test case')) col.testCase = idx;
+  });
+
+  const out = [];
+  for (let i = headerRow + 1; i < rows.length; i++){
+    const r = rows[i] || [];
+    const defectName = String(r[col.defectName] || '').trim();
+    if (!defectName) continue;
+    out.push({
+      releaseName: String(col.release !== undefined ? r[col.release] : '').trim(),
+      defectName,
+      status: String(col.status !== undefined ? r[col.status] : '').trim(),
+      testCase: String(col.testCase !== undefined ? r[col.testCase] : '').trim()
+    });
+  }
+  return out;
+}
+
 /* Metrics */
 function calculateMetrics(data){
-  const { stories, testCases, executions, defects, release } = data;
+  const { stories, testCases, executions, defects, release, productionDefects } = data;
   const totalStories = stories.length;
   const totalPoints = stories.reduce((s,x)=>s+(x.points||0),0);
   const totalTC = (testCases||[]).filter(tc => tc.tcName && tc.tcName.trim()).length;
@@ -1176,7 +1257,7 @@ function calculateMetrics(data){
   });
   const defectSevIndex = (defects||[]).length ? (sevSum/(defects.length)) : 0;
 
-  // Compute "defects by story" (prefer defects report, fallback to stories’ #Total Defects)
+  // Compute "defects by story" (prefer defects report, fallback to stories' #Total Defects)
   const defectsByStory = {};
   if ((defects||[]).length){
     defects.forEach(d=>{
@@ -1193,6 +1274,15 @@ function calculateMetrics(data){
       }
     });
   }
+
+  // Production Defects metrics
+  const totalProdDefects = (productionDefects||[]).length;
+  const prodDefectStatusDist = {};
+  const prodDefectsWithTC = (productionDefects||[]).filter(pd => (pd.testCase||'').trim()).length;
+  (productionDefects||[]).forEach(pd => {
+    const st = (pd.status || 'Unknown').trim() || 'Unknown';
+    prodDefectStatusDist[st] = (prodDefectStatusDist[st]||0)+1;
+  });
 
   // NEW: release metrics
   let releaseInfo = null;
@@ -1217,7 +1307,7 @@ function calculateMetrics(data){
       actualEndText: fmtDate(release.actualEnd || ''),
       keyDeliverables: release.keyDeliverables || '-',
       objectives: release.objectives || '-',
-      daysRemaining: daysRemain,
+           daysRemaining: daysRemain,
       timelineProgress,
       scheduleVariance,
       onTrackText: scheduleVariance >= -10 ? 'On Track' : 'Behind'
@@ -1271,7 +1361,6 @@ function calculateMetrics(data){
     openAvgSinceUpdate: openN ? (openAgeSum/openN) : 0,
     openAgingBuckets: agingBuckets,
     severityDist, complexityDist, typeDist,
-    // NEW fields
     execStatusDist: statusDistExec,
     execPassRate, execFirstPassYield, execFlakyCount, execReworkRate,
     execAgingBuckets: execAgingBuckets,
@@ -1279,6 +1368,9 @@ function calculateMetrics(data){
     defectSevIndex,
     defectsByStory,
     releaseInfo,
+    totalProdDefects,
+    prodDefectStatusDist,
+    prodDefectsWithTC,
     refs: {}
   };
 }
@@ -1460,9 +1552,21 @@ function renderDefectsTable(containerId){
     assignedTo:d.defectAssignedTo||'',
     status:d.defectStatus||''
   })).sort((a,b)=>String(a.defectNum).localeCompare(String(b.defectNum),undefined,{numeric:true}));
-  let html = '<div style="max-height:480px;overflow:auto;border:1px solid var(--card-border);border-radius:6px"><table><thead><tr><th>Defect Number</th><th>Story</th><th>Created By</th><th>Assigned To</th><th>Status</th></tr></thead><tbody>';
+  let html = '<div style="max-height:480px;overflow:auto;border:1px solid var(--card-border);border-radius:6px"><table><thead><tr>'
+    + '<th style="text-align:left">Defect Number</th>'
+    + '<th>Story</th>'
+    + '<th>Created By</th>'
+    + '<th>Assigned To</th>'
+    + '<th>Status</th>'
+    + '</tr></thead><tbody>';
   rows.forEach(r=>{
-    html += `<tr><td>${r.defectNum}</td><td>${r.storyName}</td><td>${r.createdBy}</td><td>${r.assignedTo}</td><td>${r.status}</td></tr>`;
+    html += `<tr>
+      <td style="text-align:left">${r.defectNum}</td>
+      <td>${r.storyName}</td>
+      <td>${r.createdBy}</td>
+      <td>${r.assignedTo}</td>
+      <td>${r.status}</td>
+    </tr>`;
   });
   html += '</tbody></table></div>'; el.innerHTML = html;
 }
@@ -1600,6 +1704,9 @@ function renderDashboard(){
   setTxt('mTC', metrics.totalTC);
   setTxt('mExec', metrics.totalExec);
   setTxt('mDef', metrics.totalDef);
+  setTxt('mCov', metrics.coverage + '%');
+  setTxt('mCompl', metrics.completion + '%');
+  setTxt('mProdDef', metrics.totalProdDefects || 0);
 
   // Executions breakdown
   const executions = getValidExecutions(globalData.executions||[]);
@@ -1616,6 +1723,7 @@ function renderDashboard(){
   setTxt('mInProgress', inProgress);
   setTxt('mCov', metrics.coverage + '%');
   setTxt('mCompl', metrics.completion + '%');
+  setTxt('mProdDef', metrics.totalProdDefects || 0);
 
   // User Stories segment
   const stories = globalData.stories||[];
@@ -1733,10 +1841,43 @@ function renderDashboard(){
   });
   renderDefectsTable('defectsByStoryChart');
 
-  // Data Quality
-  renderDataQuality();
-  renderDonutChart('missingTestsBySprintChart', metrics.missingTestsBySprint||{}, {});
-  setTxt('defectSevIdx', (metrics.defectSevIndex||0).toFixed(2));
+  // Production Defects segment
+  if (metrics.totalProdDefects > 0){
+    gid('productionDefectsSection').style.display = '';
+    setTxt('prodDefectTotal', metrics.totalProdDefects);
+    setTxt('prodDefectWithTC', metrics.prodDefectsWithTC);
+    const prodDefectCoverage = metrics.totalProdDefects ? 
+      ((metrics.prodDefectsWithTC/metrics.totalProdDefects)*100).toFixed(1) : '0.0';
+    setTxt('prodDefectCoverage', prodDefectCoverage + '%');
+    
+    renderDonutChart('prodDefectStatusChart', metrics.prodDefectStatusDist||{}, {
+      'Open':'#ef4444','In Progress':'#f59e0b','Resolved':'#10b981','Closed':'#6b7280'
+    });
+    renderProductionDefectsTable('prodDefectsTableChart');
+  } else {
+    const sec = gid('productionDefectsSection'); if (sec) sec.style.display = 'none';
+  }
+}
+
+// Production Defects table renderer
+function renderProductionDefectsTable(containerId){
+  const el = gid(containerId); if (!el) return;
+  const prodDefects = globalData.productionDefects||[];
+  if (!prodDefects.length){ el.innerHTML = '<div class="small" style="padding:20px;text-align:center">No production defect data</div>'; return; }
+  
+  const rows = prodDefects.map(pd=>({
+    defectName: pd.defectName||'',
+    status: pd.status||'',
+    testCase: pd.testCase||'N/A',
+    release: pd.releaseName||''
+  })).sort((a,b)=>String(a.defectName).localeCompare(String(b.defectName)));
+  
+  let html = '<div style="max-height:480px;overflow:auto;border:1px solid var(--card-border);border-radius:6px"><table><thead><tr><th>Production Defect</th><th>Status</th><th>Test Case</th><th>Release</th></tr></thead><tbody>';
+  rows.forEach(r=>{
+    html += `<tr><td>${r.defectName}</td><td>${r.status}</td><td>${r.testCase}</td><td>${r.release}</td></tr>`;
+  });
+  html += '</tbody></table></div>'; 
+  el.innerHTML = html;
 }
 
 // NEW: simple HTML exporter used by the Export button
