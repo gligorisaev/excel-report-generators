@@ -442,6 +442,12 @@
           <div class="h">🚩 Stories Without Tests by Sprint</div>
           <div id="missingTestsBySprintChart" class="chart-body"></div>
         </div>
+        <!-- NEW: table of stories without tests -->
+        <div class="chart" style="margin-top:12px">
+          <div class="chart-explainer">Detailed list of stories that currently have no test cases.</div>
+          <div class="h">📋 Stories Without Test Cases</div>
+          <div id="storiesWithoutTestsChart" class="chart-body"></div>
+        </div>
       </div>
     </details>
 
@@ -1152,20 +1158,62 @@ function calculateMetrics(data){
   const completion = totalStories ? ((readyForProd/totalStories)*100).toFixed(1) : '0.0';
   const defectDensity = totalPoints>0 ? (totalDef/totalPoints).toFixed(2) : '0.00';
 
-  // Defects extras (safe if no defects report)
+  // Defect Severity Index (weighted average)
+  const sevWeights = { 'critical':4, 'high':3, 'medium':2, 'low':1 };
+  let sevSum = 0;
+  (defects||[]).forEach(d=>{
+    const w = sevWeights[String(d.severity||'').toLowerCase()] || 0;
+    sevSum += w;
+  });
+  const defectSevIndex = (defects||[]).length ? (sevSum/(defects.length)) : 0;
+
+  // Compute "defects by story" (prefer defects report, fallback to stories' #Total Defects)
+  const defectsByStory = {};
+  (defects||[]).forEach(d=>{
+    const storyKey = d.storyNumber || d.storyName || 'Unknown';
+    if (!defectsByStory[storyKey]) defectsByStory[storyKey] = 0;
+    defectsByStory[storyKey]++;
+  });
+  stories.forEach(s=>{
+    const storyKey = s.storyNumber || s.storyName || 'Unknown';
+    if (!(storyKey in defectsByStory)) defectsByStory[storyKey] = 0;
+  });
+
+  // Stories without tests by sprint (prefer Test Cases report when available)
+  const missingTestsBySprint = {};
+  const tcList = testCases || [];
+  if (tcList.length) {
+    const haveTC = new Set();
+    tcList.forEach(tc => haveTC.add(normalizeStoryId(tc.storyNumber, tc.storyName)));
+    (stories||[]).forEach(s => {
+      const missing = !haveTC.has(normalizeStoryId(s.storyNumber, s.storyName));
+      if (missing) {
+        const sp = s.sprint || 'No Sprint';
+        missingTestsBySprint[sp] = (missingTestsBySprint[sp]||0)+1;
+      }
+    });
+  } else {
+    (stories||[]).forEach(s=>{
+      if (!((s.totalTC||0) > 0)) {
+        const sp = s.sprint || 'No Sprint';
+        missingTestsBySprint[sp] = (missingTestsBySprint[sp]||0)+1;
+      }
+    });
+  }
+
+  // ADD: defects extras (severity, complexity, type, MTTR, aging)
   const severityDist = {}, complexityDist = {}, typeDist = {};
   let closedDefectsCount = 0, mttrSum = 0, mttrN = 0, openAgeSum = 0, openN = 0;
   const agingBuckets = { '0-3 days':0, '4-7 days':0, '8-14 days':0, '15+ days':0 };
   const today = new Date();
-
-  (defects||[]).forEach(d => {
+  (defects || []).forEach(d => {
     const sev = (d.severity || 'Unknown').trim() || 'Unknown';
     const cpl = (d.complexity || 'Unknown').trim() || 'Unknown';
     const typ = (d.type || 'Unknown').trim() || 'Unknown';
     const st  = (d.defectStatus || 'Unknown').trim() || 'Unknown';
-    severityDist[sev] = (severityDist[sev]||0)+1;
-    complexityDist[cpl] = (complexityDist[cpl]||0)+1;
-    typeDist[typ] = (typeDist[typ]||0)+1;
+    severityDist[sev] = (severityDist[sev] || 0) + 1;
+    complexityDist[cpl] = (complexityDist[cpl] || 0) + 1;
+    typeDist[typ] = (typeDist[typ] || 0) + 1;
 
     const stLower = st.toLowerCase();
     const isClosedLike = stLower.includes('closed') || stLower.includes('resolve') || stLower.includes('reject');
@@ -1188,30 +1236,27 @@ function calculateMetrics(data){
     }
   });
 
-  // Build execution-based metrics
+  // ADD: execution metrics (status distribution, aging, FPY, flaky, rework)
   const statusDistExec = {};
-  const byTC = new Map(); // key: story||tcName -> {count, statuses:Set, earliestStatus}
+  const byTC = new Map(); // key: story||tcName -> {count, statuses:Set, earliestStatus, earliestDate}
   const execAgingBuckets = { '0-3 days':0, '4-7 days':0, '8-14 days':0, '15+ days':0 };
-
-  validExec.forEach(e=>{
-    const stRaw = String(e.execStatus||'No Status').trim();
+  validExec.forEach(e => {
+    const stRaw = String(e.execStatus || 'No Status').trim();
     const st = stRaw || 'No Status';
-    statusDistExec[st] = (statusDistExec[st]||0)+1;
+    statusDistExec[st] = (statusDistExec[st] || 0) + 1;
 
-    const k = `${e.storyNumber||e.storyName||''}||${e.tcName||''}`;
+    const k = `${e.storyNumber || e.storyName || ''}||${e.tcName || ''}`;
     let rec = byTC.get(k);
     if (!rec){ rec = { count:0, statuses:new Set(), earliestStatus:null, earliestDate:null }; byTC.set(k, rec); }
     rec.count++;
     rec.statuses.add(st.toLowerCase());
 
-    // earliest exec status by date
     const dt = parseDMY(e.editDate) || null;
     if (!rec.earliestDate || (dt && dt < rec.earliestDate)){
       rec.earliestDate = dt || rec.earliestDate;
       rec.earliestStatus = st.toLowerCase();
     }
 
-    // aging
     let age = Number(e.ageDays);
     if (!(age > 0)) {
       const edt = parseDMY(e.editDate);
@@ -1222,11 +1267,8 @@ function calculateMetrics(data){
     else if (age <= 14) execAgingBuckets['8-14 days']++;
     else execAgingBuckets['15+ days']++;
   });
-
   const passCount = Object.entries(statusDistExec).reduce((s,[k,v]) => s + (k.toLowerCase().includes('pass') ? v : 0), 0);
   const execPassRate = totalExec ? (passCount/totalExec)*100 : 0;
-
-  // First Pass Yield: earliest execution outcome per test case
   let fpyPass = 0, fpyTotal = 0, flaky = 0, multiExecTC = 0;
   byTC.forEach(rec => {
     if (rec.count>0){ fpyTotal++; if ((rec.earliestStatus||'').includes('pass')) fpyPass++; }
@@ -1239,108 +1281,55 @@ function calculateMetrics(data){
   const execFlakyCount = flaky;
   const execReworkRate = fpyTotal ? (multiExecTC/fpyTotal)*100 : 0;
 
-  // Stories without tests by sprint
-  const missingTestsBySprint = {};
-  (stories||[]).forEach(s=>{
-    if (!((s.totalTC||0) > 0)) {
-      const sp = s.sprint || 'No Sprint';
-      missingTestsBySprint[sp] = (missingTestsBySprint[sp]||0)+1;
-    }
-  });
-
-  // Defect Severity Index (weighted average)
-  const sevWeights = { 'critical':4, 'high':3, 'medium':2, 'low':1 };
-  let sevSum = 0;
-  (defects||[]).forEach(d=>{
-    const w = sevWeights[String(d.severity||'').toLowerCase()] || 0;
-    sevSum += w;
-  });
-  const defectSevIndex = (defects||[]).length ? (sevSum/(defects.length)) : 0;
-
-  // Compute "defects by story" (prefer defects report, fallback to stories' #Total Defects)
-  const defectsByStory = {};
-  if ((defects||[]).length){
-    defects.forEach(d=>{
-      const key = (d.storyName || d.storyNumber || 'Unknown Story').trim();
-      if (!key) return;
-      defectsByStory[key] = (defectsByStory[key]||0) + 1;
-    });
-  } else {
-    (stories||[]).forEach(s=>{
-      const cnt = Number(s.totalDef||0);
-      if (cnt > 0){
-        const key = (s.storyName || s.storyNumber || 'Unknown Story').trim();
-        defectsByStory[key] = (defectsByStory[key]||0) + cnt;
-      }
-    });
-  }
-
-  // Production Defects metrics
-  const totalProdDefects = (productionDefects||[]).length;
+  // ADD: production defects metrics
+  const totalProdDefects = (productionDefects || []).length;
   const prodDefectStatusDist = {};
-  const prodDefectsWithTC = (productionDefects||[]).filter(pd => (pd.testCase||'').trim()).length;
-  (productionDefects||[]).forEach(pd => {
+  const prodDefectsWithTC = (productionDefects || []).filter(pd => (pd.testCase || '').trim()).length;
+  (productionDefects || []).forEach(pd => {
     const st = (pd.status || 'Unknown').trim() || 'Unknown';
-    prodDefectStatusDist[st] = (prodDefectStatusDist[st]||0)+1;
+    prodDefectStatusDist[st] = (prodDefectStatusDist[st] || 0) + 1;
   });
 
-  // NEW: release metrics
+  // ADD: release info (safe fallback)
   let releaseInfo = null;
   if (release && release._plannedStart && release._plannedEnd) {
-    const today = new Date();
     const totalDays = Math.max(1, daysBetween(new Date(release._plannedEnd), new Date(release._plannedStart)));
-    const elapsedDays = Math.min(totalDays, Math.max(0, daysBetween(new Date(today), new Date(release._plannedStart))));
+    const elapsedDays = Math.min(totalDays, Math.max(0, daysBetween(new Date(), new Date(release._plannedStart))));
     const timelineProgress = (elapsedDays/totalDays)*100;
-
     const execProgress = totalTC ? (totalExec/totalTC)*100 : 0;
-    const scheduleVariance = execProgress - timelineProgress; // + ahead, - behind
-
-    const daysRemain = Math.max(0, daysBetween(new Date(release._plannedEnd), new Date(today)));
-
+    const scheduleVariance = execProgress - timelineProgress;
+    const daysRemain = Math.max(0, daysBetween(new Date(release._plannedEnd), new Date()));
     releaseInfo = {
       name: release.name,
       owner: release.owner,
       createdBy: release.createdBy,
-      // Use raw values for display; parser handles formatting or falls back to raw
       plannedRangeText: buildRangeText(release.plannedStart, release.plannedEnd),
       actualStartText: fmtDate(release.actualStart || ''),
       actualEndText: fmtDate(release.actualEnd || ''),
       keyDeliverables: release.keyDeliverables || '-',
       objectives: release.objectives || '-',
-           daysRemaining: daysRemain,
+      daysRemaining: daysRemain,
       timelineProgress,
       scheduleVariance,
       onTrackText: scheduleVariance >= -10 ? 'On Track' : 'Behind'
     };
   } else {
-    // Fallback when Release report is missing or dates are not provided
-    // 1) Pick most common release name across all uploaded rows
     const nameCount = {};
     (stories||[]).forEach(s => { const n=(s.releaseName||'').trim(); if(n) nameCount[n]=(nameCount[n]||0)+1; });
     (testCases||[]).forEach(tc => { const n=(tc.releaseName||'').trim(); if(n) nameCount[n]=(nameCount[n]||0)+1; });
-    (validExec||[]).forEach(e => { const n=(e.releaseName||'').trim(); if(n) nameCount[n]=(nameCount[n]||0)+1; });
+    (getValidExecutions(executions||[])||[]).forEach(e => { const n=(e.releaseName||'').trim(); if(n) nameCount[n]=(nameCount[n]||0)+1; });
     const fallbackName = Object.keys(nameCount).sort((a,b)=> (nameCount[b]-nameCount[a]))[0] || (release?.name || '');
-
-    // 2) Derive actual start/end from earliest/latest dates in data (best-effort)
-    const dateBucket = [];
-    (stories||[]).forEach(s => { const d=parseDMY(s.createdDate); if(d) dateBucket.push(d); });
-    (testCases||[]).forEach(tc => { const d=parseDMY(tc.tcCreatedDate); if(d) dateBucket.push(d); });
-    (validExec||[]).forEach(e => { const d=parseDMY(e.editDate); if(d) dateBucket.push(d); });
-
-    const minDate = dateBucket.length ? new Date(Math.min(...dateBucket.map(d=>d.getTime()))) : null;
-    const maxDate = dateBucket.length ? new Date(Math.max(...dateBucket.map(d=>d.getTime()))) : null;
-
     releaseInfo = {
       name: fallbackName || 'Release',
       owner: release?.owner || '',
       createdBy: release?.createdBy || '',
-      plannedRangeText: '-',                // unknown without Release report
+      plannedRangeText: '-',
       actualStartText: (release && release._actualStart) ? fmtDate(release._actualStart) : '-',
       actualEndText: (release && release._actualEnd) ? fmtDate(release._actualEnd) : '-',
       keyDeliverables: release?.keyDeliverables || '-',
       objectives: release?.objectives || '-',
-      daysRemaining: '-',                   // cannot compute without planned end
-      timelineProgress: 0,                  // cannot compute without planned dates
+      daysRemaining: '-',
+      timelineProgress: 0,
       scheduleVariance: 0,
       onTrackText: 'Unknown'
     };
@@ -1375,16 +1364,19 @@ function calculateMetrics(data){
   };
 }
 
-/* MISSING: minimal render helpers and burndown renderer */
+/* === Render helpers (missing functions used by renderDashboard) === */
+
+// Donut-style legend renderer
 function renderDonutChart(containerId, data, colors){
-  const el = gid(containerId); if (!el) return;
-  const entries = Object.entries(data||{}).filter(([,v])=>v>0);
+  const el = document.getElementById(containerId); if (!el) return;
+  const entries = Object.entries(data||{}).filter(([,v])=>Number(v)>0);
   if (!entries.length){ el.innerHTML = '<div class="small" style="text-align:center;padding:20px">No data</div>'; return; }
   entries.sort((a,b)=>b[1]-a[1]);
-  const total = entries.reduce((s,[,v])=>s+v,0);
+  const total = entries.reduce((s,[,v])=>s+Number(v),0);
   let html = '<div style="padding:12px">';
   entries.forEach(([k,v],i)=>{
-    const pct = total?((v/total)*100).toFixed(1):0;
+    const val = Number(v)||0;
+    const pct = total?((val/total)*100).toFixed(1):'0.0';
     const color = (colors && colors[k]) || ['#3b82f6','#10b981','#f59e0b','#8b5cf6','#ef4444','#06b6d4','#ec4899','#14b8a6','#f97316','#6366f1'][i%10];
     const label = k.length>48 ? k.slice(0,48)+'…' : k;
     html += `
@@ -1395,44 +1387,24 @@ function renderDonutChart(containerId, data, colors){
         </div>
         <div style="display:flex;gap:8px">
           <span style="color:#6b7280;font-size:.85rem">${pct}%</span>
-          <span style="font-weight:800;color:#111827">${v}</span>
+          <span style="font-weight:800;color:#111827">${val}</span>
         </div>
       </div>`;
   });
-  html += '</div>'; el.innerHTML = html;
+  html += '</div>';
+  el.innerHTML = html;
 }
+
+// Bar list, hides zeroes
 function renderChart(containerId, data){
-  const el = gid(containerId); if (!el) return;
-  const entries = Object.entries(data||{}).filter(([,v])=>v>0);
+  const el = document.getElementById(containerId); if (!el) return;
+  const entries = Object.entries(data||{}).filter(([,v])=>Number(v)>0);
   if (!entries.length){ el.innerHTML = '<div class="small" style="padding:20px;text-align:center">No data</div>'; return; }
-  const max = Math.max(...entries.map(([,v])=>v));
+  const max = Math.max(...entries.map(([,v])=>Number(v)||0), 0);
   let html = '<div style="padding:8px">';
   entries.sort((a,b)=>b[1]-a[1]).forEach(([k,v])=>{
-    const pct = max? (v/max)*100 : 0;
-    const label = k.length>48 ? k.slice(0,48)+'…' : k;
-    html += `
-      <div style="margin-bottom:10px">
-        <div style="display:flex;justify-content:space-between;margin-bottom:6px;gap:8px">
-          <span style="font-weight:600;color:#374151;word-break:break-word" title="${k}">${label}</span>
-          <span style="font-weight:800;color:#111827">${v}</span>
-        </div>
-        <div style="background:#e5e7eb;border-radius:6px;height:8px">
-          <div style="background:#6366f1;height:100%;width:${pct}%;border-radius:6px"></div>
-        </div>
-      </div>`;
-  });
-  html += '</div>'; el.innerHTML = html;
-}
-// NEW: render chart including zero values (keeps entries with 0)
-function renderChartIncludingZeros(containerId, data){
-  const el = gid(containerId); if (!el) return;
-  const entries = Object.entries(data || {});
-  if (!entries.length){ el.innerHTML = '<div class="small" style="text-align:center;padding:20px">No data</div>'; return; }
-  const max = Math.max(0, ...entries.map(([,v]) => Number(v) || 0));
-  let html = '<div style="padding:8px">';
-  entries.sort((a,b)=> (b[1]-a[1])).forEach(([k,v])=>{
-    const val = Number(v) || 0;
-    const pct = max ? (val/max)*100 : 0;
+    const val = Number(v)||0;
+    const pct = max? (val/max)*100 : 0;
     const label = k.length>48 ? k.slice(0,48)+'…' : k;
     html += `
       <div style="margin-bottom:10px">
@@ -1445,17 +1417,41 @@ function renderChartIncludingZeros(containerId, data){
         </div>
       </div>`;
   });
-  html += '</div>'; el.innerHTML = html;
+  html += '</div>';
+  el.innerHTML = html;
 }
 
-/* ADD: missing helpers used by renderDashboard */
+// Bar list, keeps zeroes
+function renderChartIncludingZeros(containerId, data){
+  const el = document.getElementById(containerId); if (!el) return;
+  const entries = Object.entries(data||{});
+  if (!entries.length){ el.innerHTML = '<div class="small" style="text-align:center;padding:20px">No data</div>'; return; }
+  const max = Math.max(...entries.map(([,v])=>Number(v)||0), 0);
+  let html = '<div style="padding:8px">';
+  entries.sort((a,b)=> (Number(b[1]) - Number(a[1]))).forEach(([k,v])=>{
+    const val = Number(v)||0;
+    const pct = max? (val/max)*100 : 0;
+    const label = k.length>48 ? k.slice(0,48)+'…' : k;
+    html += `
+      <div style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px;gap:8px">
+          <span style="font-weight:600;color:#374151;word-break:break-word" title="${k}">${label}</span>
+          <span style="font-weight:800;color:#111827">${val}</span>
+        </div>
+        <div style="background:#e5e7eb;border-radius:6px;height:8px">
+          <div style="background:#6366f1;height:100%;width:${pct}%;border-radius:6px"></div>
+        </div>
+      </div>`;
+  });
+  html += '</div>';
+  el.innerHTML = html;
+}
 
-// Mini status table by assignee
+// Mini table of execution status by assignee
 function renderExecStatusByAssigneeMini(containerId){
-  const el = gid(containerId); if (!el) return;
+  const el = document.getElementById(containerId); if (!el) return;
   const executions = getValidExecutions(globalData.executions||[]);
   if (!executions.length){ el.innerHTML = '<div class="small" style="padding:12px">No execution data</div>'; return; }
-
   const byA = {};
   executions.forEach(e=>{
     const a = (e.execAssigned||'(unassigned)').trim();
@@ -1469,7 +1465,6 @@ function renderExecStatusByAssigneeMini(containerId){
     else if (s.includes('progress')) byA[a].prog++;
     else byA[a].none++;
   });
-
   const rows = Object.entries(byA).sort((a,b)=>b[1].total-a[1].total);
   let html = '<div class="chart-body" style="overflow:auto"><table><thead><tr>'
     + '<th style="text-align:left">Assignee</th>'
@@ -1478,13 +1473,8 @@ function renderExecStatusByAssigneeMini(containerId){
   rows.forEach(([name,m])=>{
     html += `<tr>
       <td style="text-align:left">${name}</td>
-      <td>${m.pass}</td>
-      <td>${m.fail}</td>
-      <td>${m.block}</td>
-      <td>${m.notStarted}</td>
-      <td>${m.prog}</td>
-      <td>${m.none}</td>
-      <td><b>${m.total}</b></td>
+      <td>${m.pass}</td><td>${m.fail}</td><td>${m.block}</td>
+      <td>${m.notStarted}</td><td>${m.prog}</td><td>${m.none}</td><td><b>${m.total}</b></td>
     </tr>`;
   });
   html += '</tbody></table></div>';
@@ -1494,7 +1484,7 @@ function renderExecStatusByAssigneeMini(containerId){
 // Workload balance donut
 function renderTestWorkloadBalanceDonut(containerId, assigneeDist){
   const entries = Object.entries(assigneeDist||{});
-  const el = gid(containerId); if (!el) return;
+  const el = document.getElementById(containerId); if (!el) return;
   if (!entries.length){ el.innerHTML = '<div class="small" style="padding:20px;text-align:center">No workload data</div>'; return; }
   const vals = entries.map(([,v])=>Number(v)||0);
   const avg = vals.reduce((s,v)=>s+v,0)/vals.length;
@@ -1502,7 +1492,7 @@ function renderTestWorkloadBalanceDonut(containerId, assigneeDist){
     'Overloaded (>150% avg)':0,'High (125-150% avg)':0,'Balanced (75-125% avg)':0,'Low (<75% avg)':0
   };
   entries.forEach(([,v])=>{
-    const r = avg ? v/avg : 0;
+    const r = avg ? (Number(v)||0)/avg : 0;
     if (r>1.5) buckets['Overloaded (>150% avg)']++;
     else if (r>1.25) buckets['High (125-150% avg)']++;
     else if (r>=0.75) buckets['Balanced (75-125% avg)']++;
@@ -1514,9 +1504,9 @@ function renderTestWorkloadBalanceDonut(containerId, assigneeDist){
   el.innerHTML += `<div class="small" style="text-align:center;padding:8px;border-top:1px solid #e5e7eb">Average: <b>${avg.toFixed(1)}</b> executions/person</div>`;
 }
 
-// Coverage heatmap donut by sprint
+// Sprint heatmap proxy using donut
 function renderTestCoverageHeatmap(containerId){
-  const el = gid(containerId); if (!el) return;
+  const el = document.getElementById(containerId); if (!el) return;
   const stories = globalData.stories||[];
   if (!stories.length){ el.innerHTML = '<div class="small" style="padding:20px;text-align:center">No story data</div>'; return; }
   const bySprint = {};
@@ -1540,9 +1530,9 @@ function renderTestCoverageHeatmap(containerId){
   el.innerHTML += `<div class="small" style="text-align:center;padding:8px;border-top:1px solid #e5e7eb">Overall Coverage: <b>${overall}%</b> (${withTests}/${totStories})</div>`;
 }
 
-// Defects table renderer
+// Defects table
 function renderDefectsTable(containerId){
-  const el = gid(containerId); if (!el) return;
+  const el = document.getElementById(containerId); if (!el) return;
   const defects = globalData.defects||[];
   if (!defects.length){ el.innerHTML = '<div class="small" style="padding:20px;text-align:center">No defect data</div>'; return; }
   const rows = defects.map(d=>({
@@ -1554,29 +1544,32 @@ function renderDefectsTable(containerId){
   })).sort((a,b)=>String(a.defectNum).localeCompare(String(b.defectNum),undefined,{numeric:true}));
   let html = '<div style="max-height:480px;overflow:auto;border:1px solid var(--card-border);border-radius:6px"><table><thead><tr>'
     + '<th style="text-align:left">Defect Number</th>'
-    + '<th>Story</th>'
-    + '<th>Created By</th>'
-    + '<th>Assigned To</th>'
-    + '<th>Status</th>'
+    + '<th>Story</th><th>Created By</th><th>Assigned To</th><th>Status</th>'
     + '</tr></thead><tbody>';
   rows.forEach(r=>{
     html += `<tr>
       <td style="text-align:left">${r.defectNum}</td>
-      <td>${r.storyName}</td>
-      <td>${r.createdBy}</td>
-      <td>${r.assignedTo}</td>
-      <td>${r.status}</td>
+      <td>${r.storyName}</td><td>${r.createdBy}</td><td>${r.assignedTo}</td><td>${r.status}</td>
     </tr>`;
   });
-  html += '</tbody></table></div>'; el.innerHTML = html;
+  html += '</tbody></table></div>';
+  el.innerHTML = html;
 }
 
-// Add: Data Quality helper used by renderDashboard
+// Data Quality header notices
 function renderDataQuality(){
-  const el = gid('dqContainer'); if (!el) return;
-  const { stories = [], defects = [] } = globalData;
+  const el = document.getElementById('dqContainer'); if (!el) return;
+  const { stories = [], testCases = [], defects = [] } = globalData;
 
-  const storiesWithoutTCCount = stories.filter(s => (s.totalTC || 0) === 0).length;
+  let storiesWithoutTCCount = 0;
+  if ((testCases||[]).length){
+    const haveTC = new Set();
+    testCases.forEach(tc => haveTC.add(normalizeStoryId(tc.storyNumber, tc.storyName)));
+    storiesWithoutTCCount = stories.filter(s => !haveTC.has(normalizeStoryId(s.storyNumber, s.storyName))).length;
+  } else {
+    storiesWithoutTCCount = stories.filter(s => (s.totalTC || 0) === 0).length;
+  }
+
   const openDefectsCount = defects.filter(d => {
     const st = (d.defectStatus || '').toLowerCase();
     return st && !(st.includes('closed') || st.includes('resolve') || st.includes('reject'));
@@ -1591,29 +1584,24 @@ function renderDataQuality(){
     </div>`;
 }
 
-// NEW: render table of test cases without executions
+// Table of test cases without executions
 function renderNoExecTests(containerId, items){
-  const el = gid(containerId); if (!el) return;
+  const el = document.getElementById(containerId); if (!el) return;
   const allTC = globalData.testCases || [];
   if (!allTC.length){
     el.innerHTML = '<div class="small" style="padding:20px;text-align:center">No test cases report uploaded</div>';
     return;
   }
-
-  // Use provided list if passed, else compute test cases WITHOUT any executions
   let missing = Array.isArray(items) ? items : null;
   if (!missing){
     const executions = getValidExecutions(globalData.executions||[]);
-    const execKeys = new Set(executions.map(e => makeTCKey(e))); // consider all executions regardless of status
+    const execKeys = new Set(executions.map(e => makeTCKey(e)));
     missing = allTC.filter(tc => !execKeys.has(makeTCKey(tc)));
   }
-
   if (!missing.length){
     el.innerHTML = '<div class="small" style="padding:20px;text-align:center">Great! Every test case has at least one execution.</div>';
     return;
   }
-
-  // Sort by Story then by Test Case (normalized)
   missing.sort((a,b)=>{
     const sa = normalizeStoryId(a.storyNumber,a.storyName).localeCompare(
       normalizeStoryId(b.storyNumber,b.storyName), undefined, {numeric:true}
@@ -1621,22 +1609,18 @@ function renderNoExecTests(containerId, items){
     if (sa !== 0) return sa;
     return normalizeStr(a.tcName).localeCompare(normalizeStr(b.tcName), undefined, {numeric:true});
   });
-
   let html = '<div style="max-height:420px;overflow:auto;border:1px solid var(--card-border);border-radius:6px">';
   html += '<table><thead><tr><th>Story</th><th>Test Case</th></tr></thead><tbody>';
   missing.forEach(tc=>{
-    html += `<tr>
-      <td>${tc.storyName || tc.storyNumber || ''}</td>
-      <td>${tc.tcName || ''}</td>
-    </tr>`;
+    html += `<tr><td>${tc.storyName || tc.storyNumber || ''}</td><td>${tc.tcName || ''}</td></tr>`;
   });
   html += '</tbody></table></div>';
   el.innerHTML = html;
 }
 
-// NEW: render table of stories without test cases (safe if container missing)
+// Table of stories without test cases
 function renderStoriesWithoutTests(containerId){
-  const el = gid(containerId); if (!el) return; // allow call even if UI element is not present
+  const el = document.getElementById(containerId); if (!el) return;
   const stories = globalData.stories || [];
   if (!stories.length){
     el.innerHTML = '<div class="small" style="padding:20px;text-align:center">No stories report uploaded</div>';
@@ -1655,7 +1639,6 @@ function renderStoriesWithoutTests(containerId){
     el.innerHTML = '<div class="small" style="padding:20px;text-align:center">Great! Every story has at least one test case.</div>';
     return;
   }
-  // Sort by Sprint then Story
   missing.sort((a,b)=>{
     const sa = String(a.sprint||'').localeCompare(String(b.sprint||''), undefined, {numeric:true});
     if (sa !== 0) return sa;
@@ -1666,17 +1649,13 @@ function renderStoriesWithoutTests(containerId){
   let html = '<div style="max-height:420px;overflow:auto;border:1px solid var(--card-border);border-radius:6px">';
   html += '<table><thead><tr><th>Story</th><th>Sprint</th><th>Owner</th></tr></thead><tbody>';
   missing.forEach(s=>{
-    html += `<tr>
-      <td>${s.storyName || s.storyNumber || ''}</td>
-      <td>${s.sprint || ''}</td>
-      <td>${s.owner || s.assignee || ''}</td>
-    </tr>`;
+    html += `<tr><td>${s.storyName || s.storyNumber || ''}</td><td>${s.sprint || ''}</td><td>${s.owner || s.assignee || ''}</td></tr>`;
   });
   html += '</tbody></table></div>';
   el.innerHTML = html;
 }
 
-/* RESTORED: render dashboard to update UI */
+/* ===== Dashboard rendering and logic ===== */
 function renderDashboard(){
   // NEW: Release Overview render
   if (metrics.releaseInfo){
@@ -1840,6 +1819,12 @@ function renderDashboard(){
     '0-3 days':'#22c55e','4-7 days':'#84cc16','8-14 days':'#f59e0b','15+ days':'#ef4444'
   });
   renderDefectsTable('defectsByStoryChart');
+
+  // NEW: Data Quality render + Severity Index display
+  renderDataQuality();
+  renderDonutChart('missingTestsBySprintChart', (metrics.missingTestsBySprint||{}), {});
+  renderStoriesWithoutTests('storiesWithoutTestsChart');
+  setTxt('defectSevIdx', ((metrics.defectSevIndex||0).toFixed(2)));
 
   // Production Defects segment
   if (metrics.totalProdDefects > 0){
