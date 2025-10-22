@@ -1136,13 +1136,25 @@ function calculateMetrics(data){
   const defectRecordCount = (defects||[]).length;
   const totalDef = defectRecordCount > 0 ? defectRecordCount : storyDefSum;
 
-  const storiesWithTC = new Set();
-  // If TC report missing, use story.totalTC > 0 as coverage signal
+  // REPLACE: coverage computation to use normalized IDs and count only stories present in the Stories report
+  // const storiesWithTC = new Set();
+  // if (totalTC > 0) {
+  //   (testCases||[]).forEach(tc => { if (tc.tcName && tc.storyNumber) storiesWithTC.add(tc.storyNumber); });
+  // } else {
+  //   stories.forEach(s => { if ((s.totalTC||0) > 0) storiesWithTC.add(s.storyNumber); });
+  // }
+  // const coverage = totalStories ? ((storiesWithTC.size/totalStories)*100).toFixed(1) : '0.0';
+  let storiesWithTCCount = 0;
   if (totalTC > 0) {
-    (testCases||[]).forEach(tc => { if (tc.tcName && tc.storyNumber) storiesWithTC.add(tc.storyNumber); });
+    const haveTC = new Set();
+    (testCases||[]).forEach(tc => {
+      if (tc.tcName) haveTC.add(normalizeStoryId(tc.storyNumber, tc.storyName));
+    });
+    storiesWithTCCount = (stories||[]).filter(s => haveTC.has(normalizeStoryId(s.storyNumber, s.storyName))).length;
   } else {
-    stories.forEach(s => { if ((s.totalTC||0) > 0) storiesWithTC.add(s.storyNumber); });
+    storiesWithTCCount = (stories||[]).filter(s => (s.totalTC||0) > 0).length;
   }
+  const coverage = totalStories ? ((storiesWithTCCount/totalStories)*100).toFixed(1) : '0.0';
 
   const statusDist = {}, impactDist={}, sprintDist={}, assigneeDist={}, pointsByStatus={};
   for (const s of stories){
@@ -1153,9 +1165,9 @@ function calculateMetrics(data){
     if (s.storyStatus) pointsByStatus[s.storyStatus]=(pointsByStatus[s.storyStatus]||0)+(s.points||0);
   }
   const readyForProd = statusDist['Ready for Production Deployment']||0;
-
-  const coverage = totalStories ? ((storiesWithTC.size/totalStories)*100).toFixed(1) : '0.0';
+  // NEW: define completion that was missing
   const completion = totalStories ? ((readyForProd/totalStories)*100).toFixed(1) : '0.0';
+
   const defectDensity = totalPoints>0 ? (totalDef/totalPoints).toFixed(2) : '0.00';
 
   // Defect Severity Index (weighted average)
@@ -1706,11 +1718,21 @@ function renderDashboard(){
 
   // User Stories segment
   const stories = globalData.stories||[];
-  const storiesWithoutTC = stories.filter(s => (s.totalTC||0)===0);
+  // REPLACE: compute "Stories without Tests" using Test Cases when present
+  // const storiesWithoutTC = stories.filter(s => (s.totalTC||0)===0);
+  // setTxt('storyNoTests', storiesWithoutTC.length);
+  let storyNoTestsCount = 0;
+  if ((globalData.testCases||[]).length){
+    const haveTC = new Set();
+    (globalData.testCases||[]).forEach(tc => haveTC.add(normalizeStoryId(tc.storyNumber, tc.storyName)));
+    storyNoTestsCount = stories.filter(s => !haveTC.has(normalizeStoryId(s.storyNumber, s.storyName))).length;
+  } else {
+    storyNoTestsCount = stories.filter(s => (s.totalTC||0)===0).length;
+  }
   const highImpactCount = stories.filter(s => (s.impact==='High' || s.impact==='Critical')).length;
   setTxt('storyTotal', metrics.totalStories);
   setTxt('storyAvgPoints', (metrics.totalStories? (metrics.totalPoints/metrics.totalStories).toFixed(1):'0.0'));
-  setTxt('storyNoTests', storiesWithoutTC.length);
+  setTxt('storyNoTests', storyNoTestsCount);
   setTxt('storyHighImpact', highImpactCount);
 
   renderDonutChart('storyStatusChart', metrics.statusDist, {
@@ -1754,7 +1776,7 @@ function renderDashboard(){
   const statusDist = {};
   executions.forEach(e=>{
     const st = (e.execStatus||'No Status').trim();
-    statusDist[st] = (statusDist[st]||0)+1;
+    statusDist[st] = (statusDist[st] || 0) + 1;
   });
   renderDonutChart('execStatusChart', statusDist, {
     'Passed':'#10b981','Failed':'#ef4444','Blocked':'#f59e0b','In Progress':'#6366f1','Not Started':'#6b7280','No Status':'#94a3b8'
@@ -1861,7 +1883,7 @@ function renderProductionDefectsTable(containerId){
   rows.forEach(r=>{
     html += `<tr><td>${r.defectName}</td><td>${r.status}</td><td>${r.testCase}</td><td>${r.release}</td></tr>`;
   });
-  html += '</tbody></table></div>'; 
+  html += '</tbody></table></div>';
   el.innerHTML = html;
 }
 
