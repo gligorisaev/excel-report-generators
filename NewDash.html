@@ -104,10 +104,10 @@
       </div>
     </div>
 
-    <details id="content" class="panel">
-      <summary><div class="empty">Load releases_gligor.xls to populate this section.</div></summary>
-      <!-- body will be rendered dynamically -->
-    </details>
+    <!-- Reverted: release panel is not collapsible -->
+    <div id="content" class="panel">
+      <div class="empty">Load releases_gligor.xls to populate this section.</div>
+    </div>
 
     <details id="stories" class="panel" style="margin-top:12px;">
       <summary><div class="empty">Load stories_gligor.xls to populate the User Stories section.</div></summary>
@@ -426,7 +426,7 @@
     function renderTopSection(model) {
       const content = $('#content');
       if (!model) {
-        content.innerHTML = '<summary><div class="empty">No release rows found in file.</div></summary>';
+        content.innerHTML = '<div class="empty">No release rows found in file.</div>';
         return;
       }
       releaseRow = model;
@@ -499,7 +499,8 @@
         </details>` : '' }
       `;
 
-      content.innerHTML = `<summary>${header}</summary><div class="section-body">${body}</div>`;
+      // Render as plain (non-collapsible) content
+      content.innerHTML = `${header}${body}`;
 
       if (storiesRows.length) renderStoriesSection(storiesRows);
       if (testCaseRows.length) renderTestCasesSection(testCaseRows);
@@ -939,7 +940,13 @@
 
     function setPanelError(panelId, msg) {
       const el = $(panelId);
-      el.innerHTML = `<summary><div class="empty">${esc(msg)}</div></summary>`;
+      if (!el) return;
+      // Render summary only for collapsible sections (DETAILS), plain for DIV
+      if (el.tagName === 'DETAILS') {
+        el.innerHTML = `<summary><div class="empty">${esc(msg)}</div></summary>`;
+      } else {
+        el.innerHTML = `<div class="empty">${esc(msg)}</div>`;
+      }
     }
 
     async function readTextOrError(file) {
