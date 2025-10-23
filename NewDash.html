@@ -1,0 +1,942 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Release Information</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #0b0c0f;
+      --panel: #12141a;
+      --panel-2: #181b22;
+      --text: #e6e9ef;
+      --muted: #b4b9c3;
+      --accent: #3b82f6;
+      --ok: #16a34a;
+      --warn: #f59e0b;
+      --bad: #ef4444;
+      --chip: #232733;
+      --border: #2a2f3a;
+    }
+    html, body { margin:0; padding:0; background:var(--bg); color:var(--text); font:14px/1.5 Segoe UI, Roboto, Arial, sans-serif; }
+    .wrap { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+    .topbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px; }
+    .title { font-size:20px; font-weight:600; letter-spacing:.2px; }
+    .controls { display:flex; align-items:center; gap:10px; flex-wrap: wrap; }
+    .btn, label.btn { background:var(--panel-2); border:1px solid var(--border); color:var(--text); padding:8px 12px; border-radius:8px; cursor:pointer; }
+    .btn:hover { background:#1d2130; }
+    input[type="file"] { display:none; }
+
+    .panel { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px; }
+    .header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+    .h-left { min-width:0; }
+    .release-name { font-size:22px; font-weight:700; margin:0 0 4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .sub { color:var(--muted); font-size:12px; display:flex; gap:12px; flex-wrap:wrap; }
+    .chips { display:flex; gap:8px; flex-wrap:wrap; }
+    .chip { background:var(--chip); border:1px solid var(--border); color:var(--text); padding:4px 8px; border-radius:999px; font-size:12px; }
+    .chip.warn { color:#ffd17a; border-color:#4a3a1c; background:#241c10; }
+    .chip.ok { color:#8ee4a0; border-color:#164a29; background:#0f2117; }
+    .chip.bad { color:#ff9aa7; border-color:#4a1f25; background:#241015; }
+
+    .grid { display:grid; grid-template-columns: repeat(4, 1fr); gap:12px; margin-top:16px; }
+    @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, 1fr);} }
+    @media (max-width: 520px) { .grid { grid-template-columns: 1fr;} }
+
+    .field { background:var(--panel-2); border:1px solid var(--border); border-radius:10px; padding:10px 12px; min-height:52px; }
+    .label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.4px; margin-bottom:6px; }
+    .value { font-size:14px; color:var(--text); word-break:break-word; }
+
+    details.disc { margin-top:12px; background:var(--panel-2); border:1px solid var(--border); border-radius:10px; }
+    details.disc > summary { cursor:pointer; padding:10px 12px; color:var(--muted); user-select:none; outline:none; }
+    details.disc > div { padding:0 12px 12px; color:var(--text); white-space:pre-wrap; }
+
+    .empty { color:var(--muted); }
+
+    .table-wrap { margin-top:12px; border:1px solid var(--border); border-radius:10px; overflow:auto; }
+    table { width:100%; border-collapse:collapse; }
+    thead th { position:sticky; top:0; background:var(--panel-2); color:var(--muted); text-align:left; font-size:11px; letter-spacing:.4px; text-transform:uppercase; }
+    th, td { border-bottom:1px solid var(--border); padding:10px; vertical-align:top; }
+    td .chip { font-size:11px; padding:2px 8px; }
+    .toolbar { display:flex; align-items:center; justify-content:space-between; margin-top:12px; gap:12px; flex-wrap:wrap; }
+    .muted { color:var(--muted); font-size:12px; }
+    .kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background:var(--panel-2); border:1px solid var(--border); padding:2px 6px; border-radius:6px; color:var(--muted); font-size:12px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div class="title">Release Information</div>
+      <div class="controls">
+        <label class="btn">
+          Load Release
+          <input id="releaseFileInput" type="file" accept=".xls,.htm,.html,.xml,.csv" />
+        </label>
+        <label class="btn">
+          Load User Stories
+          <input id="storiesFileInput" type="file" accept=".xls,.htm,.html,.xml,.csv" />
+        </label>
+        <label class="btn">
+          Load Test Cases
+          <input id="testCasesFileInput" type="file" accept=".xls,.htm,.html,.xml,.csv" />
+        </label>
+        <label class="btn">
+          Load Test Executions
+          <input id="testExecFileInput" type="file" accept=".xls,.htm,.html,.xml,.csv" />
+        </label>
+        <label class="btn">
+          Load Defects
+          <input id="defectsFileInput" type="file" accept=".xls,.htm,.html,.xml,.csv" />
+        </label>
+        <label class="btn">
+          Load Production Defects
+          <input id="prodDefFileInput" type="file" accept=".xls,.htm,.html,.xml,.csv" />
+        </label>
+      </div>
+    </div>
+
+    <div id="content" class="panel">
+      <div class="empty">Load releases_gligor.xls to populate this section.</div>
+    </div>
+
+    <div id="stories" class="panel" style="margin-top:12px;">
+      <div class="empty">Load stories_gligor.xls to populate the User Stories section.</div>
+    </div>
+
+    <div id="testcases" class="panel" style="margin-top:12px;">
+      <div class="empty">Load test_cases_gligor.xls to populate the Test Cases section.</div>
+    </div>
+
+    <div id="testexec" class="panel" style="margin-top:12px;">
+      <div class="empty">Load te_gligor.xls to populate the Test Executions section.</div>
+    </div>
+
+    <div id="defects" class="panel" style="margin-top:12px;">
+      <div class="empty">Load defects_gligor.xls to populate the Defects section.</div>
+    </div>
+
+    <div id="proddef" class="panel" style="margin-top:12px;">
+      <div class="empty">Load proddef_gligor.xls to populate the Production Defects section.</div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (s, r=document) => r.querySelector(s);
+    const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
+
+    const HEADER_MAP_RELEASE = {
+      'release: release name': 'releaseName',
+      'release: id': 'releaseId',
+      'actual end date': 'actualEnd',
+      'actual start date': 'actualStart',
+      'approach (strategy)': 'approach',
+      'deployment instance': 'deploymentInstance',
+      'key deliverables': 'keyDeliverables',
+      'objectives': 'objectives',
+      'planned end date': 'plannedEnd',
+      'planned start date': 'plannedStart',
+      'project': 'project',
+      'release number': 'releaseNumber',
+      'release status': 'status',
+      'release type': 'type',
+      'responsible for deployment': 'responsible',
+      'release: record type': 'recordType',
+      'release: owner name': 'ownerName',
+      'release: owner role': 'ownerRole',
+      'release: created by': 'createdBy',
+      'release: created date': 'createdDate',
+      'release: last modified by': 'lastModifiedBy',
+      'release: last modified date': 'lastModifiedDate',
+    };
+
+    const HEADER_MAP_STORIES = {
+      'release name': 'releaseName',
+      'story number': 'storyNumber',
+      'story: story name': 'storyName',
+      'sprint': 'sprint',
+      'story status': 'status',
+      'story: owner name': 'ownerName',
+      'story: created by': 'createdBy',
+      'story: created date': 'createdDate',
+      'assignee': 'assignee',
+      'story: last modified by': 'lastModifiedBy',
+      'story: last modified date': 'lastModifiedDate',
+      '# total test cases': 'totalTestCases',
+      '#total defects': 'totalDefects',
+      'priority - backlog list': 'priority',
+      'qa covered': 'qaCovered',
+      'requestor': 'requestor',
+    };
+
+    const HEADER_MAP_TESTCASES = {
+      'release name': 'releaseName',
+      'story number': 'storyNumber',
+      'story: story name': 'storyName',
+      'test case number': 'testCaseNumber',
+      'test case: test case name': 'testCaseName',
+      '# executions not passed': 'executionsNotPassed',
+      '# failed executions': 'failedExecutions',
+      '# open defects': 'openDefects',
+      '# passed executions': 'passedExecutions',
+      '# total defects': 'totalDefects',
+      '# total executions': 'totalExecutions',
+      'age (in days)': 'ageDays',
+      'assigned to': 'assignedTo',
+      'execution initiated': 'executionInitiated',
+      'status': 'status',
+      'tc end date': 'tcEndDate',
+      'type': 'type',
+      'test case: created by': 'createdBy',
+      'test case: created date': 'createdDate',
+      'test case: last modified by': 'lastModifiedBy',
+      'test case: last modified date': 'lastModifiedDate',
+      'test case: last activity date': 'lastActivityDate',
+    };
+
+    const HEADER_MAP_TESTEXEC = {
+      'release name': 'releaseName',
+      'story name': 'storyName',
+      'test case execution: test case execution #': 'tceNumber',
+      'test case': 'testCaseName',
+      'test case execution: created by': 'createdBy',
+      'test case execution: created date': 'createdDate',
+      'edit date': 'editDate',
+      'test case execution: last modified by': 'lastModifiedBy',
+      'test case execution: last modified date': 'lastModifiedDate',
+      'assigned to': 'assignedTo',
+      'status': 'status',
+      'date passed': 'datePassed',
+      'target completion date': 'targetCompletionDate',
+    };
+
+    const HEADER_MAP_DEFECTS = {
+      'release name': 'releaseName',
+      'sprint name': 'sprintName',
+      'story name': 'storyName',
+      'test case: test case name': 'testCaseName',
+      'defect number': 'defectNumber',
+      'defect name': 'defectName',
+      'status': 'status',
+      'severity': 'severity',
+      'defect complexity': 'complexity',
+      'created date': 'createdDate',
+      'closed date': 'closedDate',
+      'days since last update': 'daysSinceUpdate',
+      'created by: full name': 'createdBy',
+      'assigned to: full name': 'assignedTo',
+      'type': 'type',
+    };
+
+    const HEADER_MAP_PRODDEF = {
+      'release: release name': 'releaseName',
+      'production defect: production defect name': 'prodDefectName',
+      'type': 'type',
+      'status': 'status',
+      'impact': 'impact',
+      'urgency': 'urgency',
+      'test case (optional)': 'testCase',
+      'production defect: created by': 'createdBy',
+      'production defect: created date': 'createdDate',
+      'age (in days)': 'ageDays',
+      'production defect: owner name': 'ownerName',
+    };
+
+    function normalizeHeader(h) {
+      return String(h || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    }
+
+    function parseHtmlTableToObjectsWithMap(html, headerMap) {
+      const sandbox = document.implementation.createHTMLDocument('');
+      sandbox.documentElement.innerHTML = html;
+      const table = sandbox.querySelector('table');
+      if (!table) return [];
+      const rows = $$('tr', table);
+      if (!rows.length) return [];
+      const headerCells = $$('th', rows[0]).length ? $$('th', rows[0]) : $$('td', rows[0]);
+      const headers = headerCells.map(th => normalizeHeader(th.textContent));
+      const mapped = headers.map(h => headerMap[h] || h);
+
+      const data = [];
+      for (let i = 1; i < rows.length; i++) {
+        const cells = $$('td,th', rows[i]);
+        if (!cells.length) continue;
+        const rowObj = {};
+        for (let c = 0; c < headers.length; c++) {
+          const key = mapped[c] ?? `col_${c}`;
+          const val = (cells[c]?.textContent || '').trim().replace(/\u00A0/g, ' ');
+          rowObj[key] = val;
+        }
+        data.push(rowObj);
+      }
+      return data;
+    }
+
+    function parseHtmlTableToObjects(html) {
+      return parseHtmlTableToObjectsWithMap(html, HEADER_MAP_RELEASE);
+    }
+
+    function statusClass(status) {
+      const s = (status || '').toLowerCase();
+      if (/(block|fail|failed|cancel|rejected)/.test(s)) return 'bad';
+      if (/(pass|passed|prod|complete|closed|resolved|success|go-live|ready|solved)/.test(s)) return 'ok';
+      if (/(plan|draft|not started|in prog|progress|review|awaiting|deployment)/.test(s)) return 'warn';
+      return '';
+    }
+
+    function fmt(v) { return v ? v : '—'; }
+    function num(v) { const n = parseFloat(String(v).replace(/[^0-9.-]/g,'')); return Number.isFinite(n) ? n : 0; }
+    function esc(s) { return String(s ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+    const pct = (a, b) => b > 0 ? Math.round((a / b) * 100) : 0;
+
+    let releaseRow = null;
+    let storiesRows = [];
+    let testCaseRows = [];
+    let testExecRows = [];
+    let defectsRows = [];
+    let prodDefRows = [];
+
+    function renderTopSection(model) {
+      const content = $('#content');
+      if (!model) {
+        content.innerHTML = '<div class="empty">No release rows found in file.</div>';
+        return;
+      }
+      releaseRow = model;
+
+      const chips = [
+        model.status ? `<span class="chip ${statusClass(model.status)}">${esc(model.status)}</span>` : '',
+        model.type ? `<span class="chip">${esc(model.type)}</span>` : '',
+        model.recordType ? `<span class="chip">${esc(model.recordType)}</span>` : '',
+      ].filter(Boolean).join('');
+
+      content.innerHTML = `
+        <div class="header">
+          <div class="h-left">
+            <h1 class="release-name">${esc(model.releaseName || model.releaseNumber || 'Release')}</h1>
+            <div class="sub">
+              ${model.releaseNumber ? `<span>Number: ${esc(model.releaseNumber)}</span>` : ''}
+              ${model.releaseId ? `<span>ID: ${esc(model.releaseId)}</span>` : ''}
+              ${model.project ? `<span>Project: ${esc(model.project)}</span>` : ''}
+            </div>
+          </div>
+          <div class="chips">${chips}</div>
+        </div>
+
+        <div class="grid">
+          <div class="field">
+            <div class="label">Planned Start</div>
+            <div class="value">${esc(fmt(model.plannedStart))}</div>
+          </div>
+          <div class="field">
+            <div class="label">Planned End</div>
+            <div class="value">${esc(fmt(model.plannedEnd))}</div>
+          </div>
+          <div class="field">
+            <div class="label">Actual Start</div>
+            <div class="value">${esc(fmt(model.actualStart))}</div>
+          </div>
+          <div class="field">
+            <div class="label">Actual End</div>
+            <div class="value">${esc(fmt(model.actualEnd))}</div>
+          </div>
+
+          <div class="field">
+            <div class="label">Owner</div>
+            <div class="value">${esc(fmt(model.ownerName))}</div>
+          </div>
+          <div class="field">
+            <div class="label">Responsible for deployment</div>
+            <div class="value">${esc(fmt(model.responsible))}</div>
+          </div>
+          <div class="field">
+            <div class="label">Created</div>
+            <div class="value">${[fmt(model.createdDate), fmt(model.createdBy)].filter(x => x !== '—').map(esc).join(' • ') || '—'}</div>
+          </div>
+          <div class="field">
+            <div class="label">Last Modified</div>
+            <div class="value">${[fmt(model.lastModifiedDate), fmt(model.lastModifiedBy)].filter(x => x !== '—').map(esc).join(' • ') || '—'}</div>
+          </div>
+        </div>
+
+        ${model.approach || model.objectives || model.keyDeliverables ? `
+        <details class="disc">
+          <summary>Details</summary>
+          <div>
+            ${model.approach ? `Approach / Strategy:\n${esc(model.approach)}\n\n` : ''}
+            ${model.objectives ? `Objectives:\n${esc(model.objectives)}\n\n` : ''}
+            ${model.keyDeliverables ? `Key Deliverables:\n${esc(model.keyDeliverables)}\n` : ''}
+          </div>
+        </details>` : '' }
+      `;
+
+      if (storiesRows.length) renderStoriesSection(storiesRows);
+      if (testCaseRows.length) renderTestCasesSection(testCaseRows);
+      if (testExecRows.length) renderTestExecSection(testExecRows);
+      if (defectsRows.length) renderDefectsSection(defectsRows);
+      if (prodDefRows.length) renderProdDefSection(prodDefRows);
+    }
+
+    function renderStoriesSection(rows) {
+      const container = $('#stories');
+      if (!rows || !rows.length) {
+        container.innerHTML = '<div class="empty">No user stories found. Load stories_gligor.xls.</div>';
+        return;
+      }
+
+      const relName = (releaseRow?.releaseName || '').trim().toLowerCase();
+      const filtered = relName ? rows.filter(r => (r.releaseName || '').trim().toLowerCase() === relName) : rows;
+
+      const total = filtered.length;
+      const statusNorm = s => String(s || '').toLowerCase();
+      const cntReady = filtered.filter(r => statusNorm(r.status).includes('ready for testing')).length;
+      const cntInProg = filtered.filter(r => /(dev.*in prog|in prog|progress)/.test(statusNorm(r.status))).length;
+      const cntOpen = filtered.filter(r => statusNorm(r.status) === 'open' || statusNorm(r.status).includes('open')).length;
+      const cntDone = filtered.filter(r => /(done|closed|completed)/.test(statusNorm(r.status))).length;
+      const sumTC = filtered.reduce((a, r) => a + num(r.totalTestCases), 0);
+      const sumDef = filtered.reduce((a, r) => a + num(r.totalDefects), 0);
+
+      const headerInfo = `
+        <div class="header">
+          <div class="h-left">
+            <h1 class="release-name">User Stories ${relName ? `— ${esc(releaseRow.releaseName)}` : ''}</h1>
+            <div class="sub">
+              <span>Total: ${total}</span>
+              <span>Test Cases: ${sumTC}</span>
+              <span>Defects: ${sumDef}</span>
+            </div>
+          </div>
+          <div class="chips">
+            <span class="chip ${cntReady ? 'ok' : ''}">Ready: ${cntReady}</span>
+            <span class="chip ${cntInProg ? 'warn' : ''}">In Progress: ${cntInProg}</span>
+            <span class="chip">Open: ${cntOpen}</span>
+            <span class="chip">Done: ${cntDone}</span>
+          </div>
+        </div>
+      `;
+
+      const cols = [
+        { key: 'storyNumber', label: 'Story' },
+        { key: 'storyName', label: 'Title' },
+        { key: 'sprint', label: 'Sprint' },
+        { key: 'status', label: 'Status', render: v => `<span class="chip ${statusClass(v)}">${esc(v)}</span>` },
+        { key: 'ownerName', label: 'Owner' },
+        { key: 'assignee', label: 'Assignee' },
+        { key: 'priority', label: 'Priority' },
+        { key: 'totalTestCases', label: 'Test Cases' },
+        { key: 'totalDefects', label: 'Defects' },
+      ];
+
+      const thead = `<thead><tr>${cols.map(c => `<th>${c.label}</th>`).join('')}</tr></thead>`;
+      const tbody = `<tbody>${
+        filtered.map(r => `
+          <tr>
+            ${cols.map(c => {
+              const raw = r[c.key] ?? '';
+              const val = typeof c.render === 'function' ? c.render(raw, r) : esc(raw);
+              return `<td>${val || ''}</td>`;
+            }).join('')}
+          </tr>
+        `).join('')
+      }</tbody>`;
+
+      container.innerHTML = `
+        ${headerInfo}
+        <div class="toolbar">
+          <div class="muted">Drop a stories .xls (HTML table export) here or use “Load User Stories”.</div>
+          ${relName ? `<div class="kbd">Filtered by release: ${esc(releaseRow.releaseName)}</div>` : ''}
+        </div>
+        <div class="table-wrap">
+          <table>${thead}${tbody}</table>
+        </div>
+      `;
+    }
+
+    function renderTestCasesSection(rows) {
+      const container = $('#testcases');
+      if (!rows || !rows.length) {
+        container.innerHTML = '<div class="empty">No test cases found. Load test_cases_gligor.xls.</div>';
+        return;
+      }
+
+      const relName = (releaseRow?.releaseName || '').trim().toLowerCase();
+      const filtered = relName ? rows.filter(r => (r.releaseName || '').trim().toLowerCase() === relName) : rows;
+
+      const totalTCs = filtered.length;
+      const sumPassed = filtered.reduce((a, r) => a + num(r.passedExecutions), 0);
+      const sumFailed = filtered.reduce((a, r) => a + num(r.failedExecutions), 0);
+      const sumNotPassed = filtered.reduce((a, r) => a + num(r.executionsNotPassed), 0);
+      const sumTotalExec = filtered.reduce((a, r) => a + num(r.totalExecutions), 0);
+      const sumOpenDef = filtered.reduce((a, r) => a + num(r.openDefects), 0);
+      const sumTotalDef = filtered.reduce((a, r) => a + num(r.totalDefects), 0);
+      const passRate = pct(sumPassed, sumTotalExec);
+
+      const cntStatus = (needle) => filtered.filter(r => String(r.status||'').toLowerCase().includes(needle)).length;
+      const cntPassed = cntStatus('passed');
+      const cntFailed = cntStatus('failed');
+      const cntNotStarted = cntStatus('not started');
+
+      const headerInfo = `
+        <div class="header">
+          <div class="h-left">
+            <h1 class="release-name">Test Cases ${relName ? `— ${esc(releaseRow.releaseName)}` : ''}</h1>
+            <div class="sub">
+              <span>Total TCs: ${totalTCs}</span>
+              <span>Total Exec: ${sumTotalExec}</span>
+              <span>Pass Rate: ${passRate}%</span>
+              <span>Open Defects: ${sumOpenDef}</span>
+              <span>Total Defects: ${sumTotalDef}</span>
+            </div>
+          </div>
+          <div class="chips">
+            <span class="chip ${cntPassed ? 'ok' : ''}">Passed: ${cntPassed}</span>
+            <span class="chip ${cntFailed ? 'bad' : ''}">Failed: ${cntFailed}</span>
+            <span class="chip ${cntNotStarted ? 'warn' : ''}">Not Started: ${cntNotStarted}</span>
+          </div>
+        </div>
+      `;
+
+      const cols = [
+        { key: 'testCaseNumber', label: 'Test Case' },
+        { key: 'testCaseName', label: 'Title' },
+        { key: 'storyNumber', label: 'Story' },
+        { key: 'status', label: 'Status', render: v => `<span class="chip ${statusClass(v)}">${esc(v)}</span>` },
+        { key: 'type', label: 'Type' },
+        { key: 'assignedTo', label: 'Assigned To' },
+        { key: 'passedExecutions', label: 'Passed' },
+        { key: 'failedExecutions', label: 'Failed' },
+        { key: 'executionsNotPassed', label: 'Not Passed' },
+        { key: 'totalExecutions', label: 'Total Exec' },
+        { key: 'openDefects', label: 'Open Defects' },
+        { key: 'totalDefects', label: 'Total Defects' },
+        { key: 'tcEndDate', label: 'End Date' },
+        { key: 'ageDays', label: 'Age (d)' },
+      ];
+
+      const thead = `<thead><tr>${cols.map(c => `<th>${c.label}</th>`).join('')}</tr></thead>`;
+      const tbody = `<tbody>${
+        filtered.map(r => `
+          <tr>
+            ${cols.map(c => {
+              const raw = r[c.key] ?? '';
+              const val = typeof c.render === 'function' ? c.render(raw, r) : esc(raw);
+              return `<td>${val || ''}</td>`;
+            }).join('')}
+          </tr>
+        `).join('')
+      }</tbody>`;
+
+      container.innerHTML = `
+        ${headerInfo}
+        <div class="toolbar">
+          <div class="muted">Drop a test cases .xls (HTML table export) here or use “Load Test Cases”.</div>
+          ${relName ? `<div class="kbd">Filtered by release: ${esc(releaseRow.releaseName)}</div>` : ''}
+        </div>
+        <div class="table-wrap">
+          <table>${thead}${tbody}</table>
+        </div>
+      `;
+    }
+
+    function renderTestExecSection(rows) {
+      const container = $('#testexec');
+      if (!rows || !rows.length) {
+        container.innerHTML = '<div class="empty">No test executions found. Load te_gligor.xls.</div>';
+        return;
+      }
+
+      const relName = (releaseRow?.releaseName || '').trim().toLowerCase();
+      const filtered = relName ? rows.filter(r => (r.releaseName || '').trim().toLowerCase() === relName) : rows;
+
+      const total = filtered.length;
+      const passed = filtered.filter(r => /passed/i.test(r.status)).length;
+      const failed = filtered.filter(r => /failed/i.test(r.status)).length;
+      const notStarted = filtered.filter(r => /not started/i.test(r.status)).length;
+      const inProg = filtered.filter(r => /(in prog|progress)/i.test(r.status)).length;
+      const uniqueTC = new Set(filtered.map(r => r.testCaseName || '')).size;
+      const passRate = pct(passed, passed + failed);
+
+      const headerInfo = `
+        <div class="header">
+          <div class="h-left">
+            <h1 class="release-name">Test Executions ${relName ? `— ${esc(releaseRow.releaseName)}` : ''}</h1>
+            <div class="sub">
+              <span>Total Execs: ${total}</span>
+              <span>Unique TCs: ${uniqueTC}</span>
+              <span>Pass Rate: ${passRate}%</span>
+            </div>
+          </div>
+          <div class="chips">
+            <span class="chip ${passed ? 'ok' : ''}">Passed: ${passed}</span>
+            <span class="chip ${failed ? 'bad' : ''}">Failed: ${failed}</span>
+            <span class="chip ${inProg ? 'warn' : ''}">In Progress: ${inProg}</span>
+            <span class="chip ${notStarted ? 'warn' : ''}">Not Started: ${notStarted}</span>
+          </div>
+        </div>
+      `;
+
+      const cols = [
+        { key: 'tceNumber', label: 'Execution #' },
+        { key: 'testCaseName', label: 'Test Case' },
+        { key: 'storyName', label: 'Story' },
+        { key: 'status', label: 'Status', render: v => `<span class="chip ${statusClass(v)}">${esc(v)}</span>` },
+        { key: 'assignedTo', label: 'Assigned To' },
+        { key: 'datePassed', label: 'Date Passed' },
+        { key: 'targetCompletionDate', label: 'Target Date' },
+        { key: 'createdDate', label: 'Created' },
+        { key: 'lastModifiedDate', label: 'Last Modified' },
+      ];
+
+      const thead = `<thead><tr>${cols.map(c => `<th>${c.label}</th>`).join('')}</tr></thead>`;
+      const tbody = `<tbody>${
+        filtered.map(r => `
+          <tr>
+            ${cols.map(c => {
+              const raw = r[c.key] ?? '';
+              const val = typeof c.render === 'function' ? c.render(raw, r) : esc(raw);
+              return `<td>${val || ''}</td>`;
+            }).join('')}
+          </tr>
+        `).join('')
+      }</tbody>`;
+
+      container.innerHTML = `
+        ${headerInfo}
+        <div class="toolbar">
+          <div class="muted">Drop a test executions .xls (HTML table export) here or use “Load Test Executions”.</div>
+          ${relName ? `<div class="kbd">Filtered by release: ${esc(releaseRow.releaseName)}</div>` : ''}
+        </div>
+        <div class="table-wrap">
+          <table>${thead}${tbody}</table>
+        </div>
+      `;
+    }
+
+    function renderDefectsSection(rows) {
+      const container = $('#defects');
+      if (!rows || !rows.length) {
+        container.innerHTML = '<div class="empty">No defects found. Load defects_gligor.xls.</div>';
+        return;
+      }
+
+      const relName = (releaseRow?.releaseName || '').trim().toLowerCase();
+      const filtered = relName ? rows.filter(r => (r.releaseName || '').trim().toLowerCase() === relName) : rows;
+
+      const total = filtered.length;
+      const isClosed = s => /(closed|resolved|done|solved)/i.test(s || '');
+      const openCount = filtered.filter(r => !isClosed(r.status)).length;
+      const closedCount = filtered.filter(r => isClosed(r.status)).length;
+
+      const sevCount = (sev) => filtered.filter(r => new RegExp(`^${sev}$`, 'i').test(r.severity || '')).length;
+      const sevHigh = sevCount('High') + sevCount('Critical');
+      const sevMed = sevCount('Medium');
+      const sevLow = sevCount('Low');
+
+      const headerInfo = `
+        <div class="header">
+          <div class="h-left">
+            <h1 class="release-name">Defects ${relName ? `— ${esc(releaseRow.releaseName)}` : ''}</h1>
+            <div class="sub">
+              <span>Total: ${total}</span>
+              <span>Open: ${openCount}</span>
+              <span>Closed: ${closedCount}</span>
+            </div>
+          </div>
+          <div class="chips">
+            <span class="chip ${openCount ? 'warn' : ''}">Open: ${openCount}</span>
+            <span class="chip ${closedCount ? 'ok' : ''}">Closed: ${closedCount}</span>
+            <span class="chip ${sevHigh ? 'bad' : ''}">High/Crit: ${sevHigh}</span>
+            <span class="chip ${sevMed ? 'warn' : ''}">Medium: ${sevMed}</span>
+            <span class="chip ${sevLow ? 'ok' : ''}">Low: ${sevLow}</span>
+          </div>
+        </div>
+      `;
+
+      const sevChip = (v) => {
+        const s = String(v || '').toLowerCase();
+        const cls = /critical|high/.test(s) ? 'bad' : /medium/.test(s) ? 'warn' : /low/.test(s) ? 'ok' : '';
+        return `<span class="chip ${cls}">${esc(v)}</span>`;
+      };
+
+      const cols = [
+        { key: 'defectNumber', label: 'Defect #' },
+        { key: 'defectName', label: 'Title' },
+        { key: 'status', label: 'Status', render: v => `<span class="chip ${statusClass(v)}">${esc(v)}</span>` },
+        { key: 'severity', label: 'Severity', render: v => sevChip(v) },
+        { key: 'sprintName', label: 'Sprint' },
+        { key: 'storyName', label: 'Story' },
+        { key: 'testCaseName', label: 'Test Case' },
+        { key: 'assignedTo', label: 'Assigned To' },
+        { key: 'createdDate', label: 'Created' },
+        { key: 'closedDate', label: 'Closed' },
+        { key: 'daysSinceUpdate', label: 'Days Since Update' },
+        { key: 'type', label: 'Type' },
+      ];
+
+      const thead = `<thead><tr>${cols.map(c => `<th>${c.label}</th>`).join('')}</tr></thead>`;
+      const tbody = `<tbody>${
+        filtered.map(r => `
+          <tr>
+            ${cols.map(c => {
+              const raw = r[c.key] ?? '';
+              const val = typeof c.render === 'function' ? c.render(raw, r) : esc(raw);
+              return `<td>${val || ''}</td>`;
+            }).join('')}
+          </tr>
+        `).join('')}
+      </tbody>`;
+
+      container.innerHTML = `
+        ${headerInfo}
+        <div class="toolbar">
+          <div class="muted">Drop a defects .xls (HTML table export) here or use “Load Defects”.</div>
+          ${relName ? `<div class="kbd">Filtered by release: ${esc(releaseRow.releaseName)}</div>` : ''}
+        </div>
+        <div class="table-wrap">
+          <table>${thead}${tbody}</table>
+        </div>
+      `;
+    }
+
+    function renderProdDefSection(rows) {
+      const container = $('#proddef');
+      if (!rows || !rows.length) {
+        container.innerHTML = '<div class="empty">No production defects found. Load proddef_gligor.xls.</div>';
+        return;
+      }
+
+      const relName = (releaseRow?.releaseName || '').trim().toLowerCase();
+      const filtered = relName ? rows.filter(r => (r.releaseName || '').trim().toLowerCase() === relName) : rows;
+
+      const total = filtered.length;
+      const isClosed = s => /(closed|solved|resolved)/i.test(s || '');
+      const openCount = filtered.filter(r => !isClosed(r.status)).length;
+      const closedCount = filtered.filter(r => isClosed(r.status)).length;
+
+      const impactCount = lvl => filtered.filter(r => new RegExp(`^${lvl}$`, 'i').test(r.impact || '')).length;
+      const urgentCount = lvl => filtered.filter(r => new RegExp(`^${lvl}$`, 'i').test(r.urgency || '')).length;
+
+      const impactHigh = impactCount('High');
+      const impactMed = impactCount('Medium');
+      const impactLow = impactCount('Low');
+      const urgImmediate = urgentCount('Immediate');
+      const urgHigh = urgentCount('High');
+      const urgMed = urgentCount('Medium');
+      const urgLow = urgentCount('Low');
+
+      const headerInfo = `
+        <div class="header">
+          <div class="h-left">
+            <h1 class="release-name">Production Defects ${relName ? `— ${esc(releaseRow.releaseName)}` : ''}</h1>
+            <div class="sub">
+              <span>Total: ${total}</span>
+              <span>Open: ${openCount}</span>
+              <span>Closed: ${closedCount}</span>
+            </div>
+          </div>
+          <div class="chips">
+            <span class="chip ${openCount ? 'warn' : ''}">Open: ${openCount}</span>
+            <span class="chip ${closedCount ? 'ok' : ''}">Closed: ${closedCount}</span>
+            <span class="chip ${impactHigh ? 'bad' : ''}">Impact High: ${impactHigh}</span>
+            <span class="chip ${impactMed ? 'warn' : ''}">Impact Med: ${impactMed}</span>
+            <span class="chip ${impactLow ? 'ok' : ''}">Impact Low: ${impactLow}</span>
+            <span class="chip ${urgImmediate ? 'bad' : ''}">Urg Immediate: ${urgImmediate}</span>
+            <span class="chip ${urgHigh ? 'bad' : ''}">Urg High: ${urgHigh}</span>
+            <span class="chip ${urgMed ? 'warn' : ''}">Urg Med: ${urgMed}</span>
+            <span class="chip ${urgLow ? 'ok' : ''}">Urg Low: ${urgLow}</span>
+          </div>
+        </div>
+      `;
+
+      const levelChip = (v, type='impact') => {
+        const s = String(v || '').toLowerCase();
+        let cls = '';
+        if (/immediate/.test(s)) cls = 'bad';
+        else if (/high/.test(s)) cls = 'bad';
+        else if (/medium/.test(s)) cls = 'warn';
+        else if (/low/.test(s)) cls = 'ok';
+        return `<span class="chip ${cls}">${esc(v)}</span>`;
+      };
+
+      const cols = [
+        { key: 'prodDefectName', label: 'Production Defect' },
+        { key: 'type', label: 'Type' },
+        { key: 'status', label: 'Status', render: v => `<span class="chip ${statusClass(v)}">${esc(v)}</span>` },
+        { key: 'impact', label: 'Impact', render: v => levelChip(v, 'impact') },
+        { key: 'urgency', label: 'Urgency', render: v => levelChip(v, 'urgency') },
+        { key: 'testCase', label: 'Test Case' },
+        { key: 'ownerName', label: 'Owner' },
+        { key: 'createdBy', label: 'Created By' },
+        { key: 'createdDate', label: 'Created' },
+        { key: 'ageDays', label: 'Age (d)' },
+      ];
+
+      const thead = `<thead><tr>${cols.map(c => `<th>${c.label}</th>`).join('')}</tr></thead>`;
+      const tbody = `<tbody>${
+        filtered.map(r => `
+          <tr>
+            ${cols.map(c => {
+              const raw = r[c.key] ?? '';
+              const val = typeof c.render === 'function' ? c.render(raw, r) : esc(raw);
+              return `<td>${val || ''}</td>`;
+            }).join('')}
+          </tr>
+        `).join('')}
+      </tbody>`;
+
+      container.innerHTML = `
+        ${headerInfo}
+        <div class="toolbar">
+          <div class="muted">Drop a production defects .xls (HTML table export) here or use “Load Production Defects”.</div>
+          ${relName ? `<div class="kbd">Filtered by release: ${esc(releaseRow.releaseName)}</div>` : ''}
+        </div>
+        <div class="table-wrap">
+          <table>${thead}${tbody}</table>
+        </div>
+      `;
+    }
+
+    function setPanelError(panelId, msg) {
+      const el = $(panelId);
+      el.innerHTML = `<div class="empty">${esc(msg)}</div>`;
+    }
+
+    async function readTextOrError(file) {
+      const text = await file.text();
+      if (!/<table/i.test(text)) return null;
+      return text;
+    }
+
+    async function handleReleaseFile(file) {
+      if (!file) return;
+      const text = await readTextOrError(file);
+      if (!text) { setPanelError('#content', 'Unsupported file. Please use an HTML-table .xls export.'); return; }
+      const rows = parseHtmlTableToObjects(text);
+      renderTopSection(rows[0]);
+    }
+
+    async function handleStoriesFile(file) {
+      if (!file) return;
+      const text = await readTextOrError(file);
+      if (!text) { setPanelError('#stories', 'Unsupported file. Please use an HTML-table .xls export.'); return; }
+      storiesRows = parseHtmlTableToObjectsWithMap(text, HEADER_MAP_STORIES);
+      renderStoriesSection(storiesRows);
+    }
+
+    async function handleTestCasesFile(file) {
+      if (!file) return;
+      const text = await readTextOrError(file);
+      if (!text) { setPanelError('#testcases', 'Unsupported file. Please use an HTML-table .xls export.'); return; }
+      testCaseRows = parseHtmlTableToObjectsWithMap(text, HEADER_MAP_TESTCASES);
+      renderTestCasesSection(testCaseRows);
+    }
+
+    async function handleTestExecFile(file) {
+      if (!file) return;
+      const text = await readTextOrError(file);
+      if (!text) { setPanelError('#testexec', 'Unsupported file. Please use an HTML-table .xls export.'); return; }
+      testExecRows = parseHtmlTableToObjectsWithMap(text, HEADER_MAP_TESTEXEC);
+      renderTestExecSection(testExecRows);
+    }
+
+    async function handleDefectsFile(file) {
+      if (!file) return;
+      const text = await readTextOrError(file);
+      if (!text) { setPanelError('#defects', 'Unsupported file. Please use an HTML-table .xls export.'); return; }
+      defectsRows = parseHtmlTableToObjectsWithMap(text, HEADER_MAP_DEFECTS);
+      renderDefectsSection(defectsRows);
+    }
+
+    async function handleProdDefFile(file) {
+      if (!file) return;
+      const text = await readTextOrError(file);
+      if (!text) { setPanelError('#proddef', 'Unsupported file. Please use an HTML-table .xls export.'); return; }
+      prodDefRows = parseHtmlTableToObjectsWithMap(text, HEADER_MAP_PRODDEF);
+      renderProdDefSection(prodDefRows);
+    }
+
+    $('#releaseFileInput').addEventListener('change', (e) => {
+      const file = e.target.files?.[0];
+      handleReleaseFile(file);
+    });
+    $('#storiesFileInput').addEventListener('change', (e) => {
+      const file = e.target.files?.[0];
+      handleStoriesFile(file);
+    });
+    $('#testCasesFileInput').addEventListener('change', (e) => {
+      const file = e.target.files?.[0];
+      handleTestCasesFile(file);
+    });
+    $('#testExecFileInput').addEventListener('change', (e) => {
+      const file = e.target.files?.[0];
+      handleTestExecFile(file);
+    });
+    $('#defectsFileInput').addEventListener('change', (e) => {
+      const file = e.target.files?.[0];
+      handleDefectsFile(file);
+    });
+    $('#prodDefFileInput').addEventListener('change', (e) => {
+      const file = e.target.files?.[0];
+      handleProdDefFile(file);
+    });
+
+    const releasePanel = $('#content');
+    releasePanel.addEventListener('dragover', e => { e.preventDefault(); releasePanel.style.outline = '2px dashed var(--accent)'; });
+    releasePanel.addEventListener('dragleave', e => { releasePanel.style.outline = ''; });
+    releasePanel.addEventListener('drop', e => {
+      e.preventDefault();
+      releasePanel.style.outline = '';
+      const file = e.dataTransfer.files?.[0];
+      handleReleaseFile(file);
+    });
+
+    const storiesPanel = $('#stories');
+    storiesPanel.addEventListener('dragover', e => { e.preventDefault(); storiesPanel.style.outline = '2px dashed var(--accent)'; });
+    storiesPanel.addEventListener('dragleave', e => { storiesPanel.style.outline = ''; });
+    storiesPanel.addEventListener('drop', e => {
+      e.preventDefault();
+      storiesPanel.style.outline = '';
+      const file = e.dataTransfer.files?.[0];
+      handleStoriesFile(file);
+    });
+
+    const testCasesPanel = $('#testcases');
+    testCasesPanel.addEventListener('dragover', e => { e.preventDefault(); testCasesPanel.style.outline = '2px dashed var(--accent)'; });
+    testCasesPanel.addEventListener('dragleave', e => { testCasesPanel.style.outline = ''; });
+    testCasesPanel.addEventListener('drop', e => {
+      e.preventDefault();
+      testCasesPanel.style.outline = '';
+      const file = e.dataTransfer.files?.[0];
+      handleTestCasesFile(file);
+    });
+
+    const testExecPanel = $('#testexec');
+    testExecPanel.addEventListener('dragover', e => { e.preventDefault(); testExecPanel.style.outline = '2px dashed var(--accent)'; });
+    testExecPanel.addEventListener('dragleave', e => { testExecPanel.style.outline = ''; });
+    testExecPanel.addEventListener('drop', e => {
+      e.preventDefault();
+      testExecPanel.style.outline = '';
+      const file = e.dataTransfer.files?.[0];
+      handleTestExecFile(file);
+    });
+
+    const defectsPanel = $('#defects');
+    defectsPanel.addEventListener('dragover', e => { e.preventDefault(); defectsPanel.style.outline = '2px dashed var(--accent)'; });
+    defectsPanel.addEventListener('dragleave', e => { defectsPanel.style.outline = ''; });
+    defectsPanel.addEventListener('drop', e => {
+      e.preventDefault();
+      defectsPanel.style.outline = '';
+      const file = e.dataTransfer.files?.[0];
+      handleDefectsFile(file);
+    });
+
+    const prodDefPanel = $('#proddef');
+    prodDefPanel.addEventListener('dragover', e => { e.preventDefault(); prodDefPanel.style.outline = '2px dashed var(--accent)'; });
+    prodDefPanel.addEventListener('dragleave', e => { prodDefPanel.style.outline = ''; });
+    prodDefPanel.addEventListener('drop', e => {
+      e.preventDefault();
+      prodDefPanel.style.outline = '';
+      const file = e.dataTransfer.files?.[0];
+      handleProdDefFile(file);
+    });
+  </script>
+</body>
+</html>
