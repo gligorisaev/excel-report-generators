@@ -1197,19 +1197,39 @@ function calculateMetrics(data){
   if (tcList.length) {
     const haveTC = new Set();
     tcList.forEach(tc => haveTC.add(normalizeStoryId(tc.storyNumber, tc.storyName)));
+    // dedupe by (sprint || 'No Sprint') + storyId
+    const counted = new Set();
     (stories||[]).forEach(s => {
-      const missing = !haveTC.has(normalizeStoryId(s.storyNumber, s.storyName));
+      const sid = normalizeStoryId(s.storyNumber, s.storyName);
+      if (!sid) return;
+      const missing = !haveTC.has(sid);
       if (missing) {
         const sp = s.sprint || 'No Sprint';
+        const key = sp + '||' + sid;
+        if (counted.has(key)) return;
+        counted.add(key);
         missingTestsBySprint[sp] = (missingTestsBySprint[sp]||0)+1;
       }
     });
   } else {
-    (stories||[]).forEach(s=>{
-      if (!((s.totalTC||0) > 0)) {
-        const sp = s.sprint || 'No Sprint';
-        missingTestsBySprint[sp] = (missingTestsBySprint[sp]||0)+1;
-      }
+    // dedupe by (sprint || 'No Sprint') + storyId and consider any duplicate with TC as "has tests"
+    const counted = new Set();
+    const hasTCBySid = new Map();
+    (stories||[]).forEach(s => {
+      const sid = normalizeStoryId(s.storyNumber, s.storyName);
+      if (!sid) return;
+      const has = (s.totalTC||0) > 0;
+      hasTCBySid.set(sid, (hasTCBySid.get(sid) || false) || has);
+    });
+    (stories||[]).forEach(s => {
+      const sid = normalizeStoryId(s.storyNumber, s.storyName);
+      if (!sid) return;
+      if (hasTCBySid.get(sid)) return;
+      const sp = s.sprint || 'No Sprint';
+      const key = sp + '||' + sid;
+      if (counted.has(key)) return;
+      counted.add(key);
+      missingTestsBySprint[sp] = (missingTestsBySprint[sp]||0)+1;
     });
   }
 
@@ -1575,11 +1595,26 @@ function renderDataQuality(){
 
   let storiesWithoutTCCount = 0;
   if ((testCases||[]).length){
+    // Deduplicate stories by normalized id and count once per story
     const haveTC = new Set();
     testCases.forEach(tc => haveTC.add(normalizeStoryId(tc.storyNumber, tc.storyName)));
-    storiesWithoutTCCount = stories.filter(s => !haveTC.has(normalizeStoryId(s.storyNumber, s.storyName))).length;
+    const seen = new Set();
+    (stories||[]).forEach(s => {
+      const sid = normalizeStoryId(s.storyNumber, s.storyName);
+      if (!sid || seen.has(sid)) return;
+      seen.add(sid);
+      if (!haveTC.has(sid)) storiesWithoutTCCount++;
+    });
   } else {
-    storiesWithoutTCCount = stories.filter(s => (s.totalTC || 0) === 0).length;
+    // Deduplicate and consider any duplicate having TC as covered
+    const hasTCBySid = new Map();
+    (stories||[]).forEach(s => {
+      const sid = normalizeStoryId(s.storyNumber, s.storyName);
+      if (!sid) return;
+      const has = (s.totalTC || 0) > 0;
+      hasTCBySid.set(sid, (hasTCBySid.get(sid) || false) || has);
+    });
+    storiesWithoutTCCount = Array.from(hasTCBySid.values()).filter(v => !v).length;
   }
 
   const openDefectsCount = defects.filter(d => {
@@ -1643,9 +1678,28 @@ function renderStoriesWithoutTests(containerId){
   if (tcs.length){
     const haveTC = new Set();
     tcs.forEach(tc => haveTC.add(normalizeStoryId(tc.storyNumber, tc.storyName)));
-    missing = stories.filter(s => !haveTC.has(normalizeStoryId(s.storyNumber, s.storyName)));
+    // Keep only one row per unique story id, if that story has no tests
+    const firstBySid = new Map();
+    stories.forEach(s => {
+      const sid = normalizeStoryId(s.storyNumber, s.storyName);
+      if (!sid || haveTC.has(sid) || firstBySid.has(sid)) return;
+      firstBySid.set(sid, s);
+    });
+    missing = Array.from(firstBySid.values());
   } else {
-    missing = stories.filter(s => (s.totalTC || 0) === 0);
+    // Deduplicate by story id, mark if any duplicate has TC
+    const bySidHasTC = new Map();
+    const firstBySid = new Map();
+    stories.forEach(s => {
+      const sid = normalizeStoryId(s.storyNumber, s.storyName);
+      if (!sid) return;
+      const has = (s.totalTC || 0) > 0;
+      bySidHasTC.set(sid, (bySidHasTC.get(sid) || false) || has);
+      if (!firstBySid.has(sid)) firstBySid.set(sid, s);
+    });
+    missing = Array.from(firstBySid.entries())
+      .filter(([sid]) => !bySidHasTC.get(sid))
+      .map(([, s]) => s);
   }
   if (!missing.length){
     el.innerHTML = '<div class="small" style="padding:20px;text-align:center">Great! Every story has at least one test case.</div>';

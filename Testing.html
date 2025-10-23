@@ -4,7 +4,7 @@
   <link rel="icon" type="image/png" href="favicon.png">
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>Enhanced Release Progress Report — Light UI</title>
+  <title>Release Report Dashboard — Light UI</title>
 
   <!-- Libraries (CDN) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -94,11 +94,21 @@
       background:#ffffff;border:1px solid var(--card-border);border-radius:8px;padding:12px
     }
     .chart .h{font-weight:700;color:var(--muted-2);margin-bottom:8px}
-    .chart-body{max-height:300px;overflow-y:auto}
+    .chart-body{
+      max-height:600px;
+      min-height:220px;
+      overflow-y:auto;
+    }
+    .chart-explainer {
+      font-size:0.95rem;
+      color:#64748b;
+      margin-bottom:4px;
+      font-style:italic;
+    }
 
     table{border-collapse:collapse;width:100%;background:#ffffff}
-    th,td{border:1px solid var(--card-border);padding:8px;font-size:.85rem}
-    th{background:#f8fafc;color:var(--muted-2);font-weight:700}
+    th,td{border:1px solid var(--card-border);padding:8px;font-size:.85rem;vertical-align:top}
+    th{background:#f8fafc;color:#0f172a;font-weight:700;position:sticky;top:0;z-index:1}
     td{color:var(--text)}
 
     .actions{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
@@ -113,666 +123,776 @@
     .issue{background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;padding:10px;border-radius:6px}
     .success{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;padding:10px;border-radius:6px}
     .small{font-size:.85rem;color:var(--muted)}
+
+    /* Collapsible sections */
+    details.collapse{
+      background:var(--card);
+      border:1px solid var(--card-border);
+      border-radius:12px;
+      overflow:hidden;
+      margin-bottom:16px;
+    }
+    details.collapse summary{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      padding:12px 16px;
+      cursor:pointer;
+      font-weight:800;
+      color:var(--muted-2);
+      background:linear-gradient(135deg,var(--header-grad-from),var(--header-grad-to));
+      list-style:none;
+    }
+    details.collapse summary::-webkit-details-marker{ display:none; }
+    details.collapse .chev{ transition:transform .2s ease; color:#64748b; }
+    details.collapse[open] > summary .chev{ transform:rotate(90deg); }
+    details.collapse .content{ padding:16px; }
   </style>
 </head>
 <body>
 <div class="container">
   <div class="header">
-    <h1>📊 Enhanced Release Report</h1>
+    <h1>📊 Release Report Dashboard</h1>
     <p>Complete analytics for User Stories, Test Cases, Executions & Defects</p>
   </div>
 
   <div class="upload">
     <div class="upload-area" onclick="document.getElementById('fileInput').click()">
       <div style="font-size:2rem">📁</div>
-      <div style="font-weight:700;margin-top:6px">Click to upload Excel file</div>
-      <div class="small">Supports .xlsx and .xls files with your data structure</div>
-      <input id="fileInput" type="file" accept=".xlsx,.xls" style="display:none"/>
+      <div style="font-weight:700;margin-top:6px">Add Reports for Release, User Stories, Test Cases, Test Executions, Defects and Production Defects</div>
+      <div class="small">Select 1–6 .xls/.xlsx/.csv files — the app will auto-detect report types</div>
+      <input id="fileInput" type="file" accept=".xlsx,.xls,.csv" multiple style="display:none"
+             onchange="if(this.files && this.files.length){ processReportFiles(Array.from(this.files)).finally(()=>{ this.value=''; }); }"/>
     </div>
+
     <div id="processing" class="processing"><span class="spinner"></span>Processing data...</div>
     <div id="error" class="error"></div>
   </div>
 
   <div id="dashboard" class="dashboard">
-    <!-- MAIN METRICS -->
+    <!-- Release Overview -->
+    <div id="releaseSection" class="section" style="display:none">
+      <div class="title">📦 Release Overview</div>
+      <div class="grid two">
+        <div>
+          <div style="background:#f9fafb;padding:12px;border-radius:8px;border:1px solid var(--card-border)">
+            <div style="margin-bottom:6px">Release: <span id="rName" style="font-weight:800;color:#111827">-</span></div>
+            <div style="margin-bottom:6px">Owner: <span id="rOwner">-</span> • Created By: <span id="rCreatedBy">-</span></div>
+            <div style="margin-bottom:6px">Planned: <span id="rPlanRange">-</span></div>
+            <div style="margin-bottom:6px">Actual Start: <span id="rActualStart">-</span> • Actual End: <span id="rActualEnd">-</span></div>
+          </div>
+        </div>
+        <div class="metrics" style="margin:0;display:grid;grid-template-columns:repeat(3,minmax(160px,1fr));gap:12px">
+          <div class="card indigo">
+            <div class="icon">⏱️</div>
+            <div>
+              <div class="h">Timeline Progress</div>
+              <div class="v" id="rTimelinePct">0%</div>
+              <div class="small">elapsed vs plan</div>
+            </div>
+          </div>
+          <div class="card green">
+            <div class="icon">📅</div>
+            <div>
+              <div class="h">Days Remaining</div>
+              <div class="v" id="rDaysRemain">-</div>
+              <div class="small">to planned end</div>
+            </div>
+          </div>
+          <div class="card orange">
+            <div class="icon">📉</div>
+            <div>
+              <div class="h">Schedule Variance</div>
+              <div class="v" id="rScheduleVar">0%</div>
+              <div class="small" id="rOnTrack">On track status</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Metric tiles -->
     <div class="metrics">
-      <div class="card blue"><div class="icon">📋</div><div><div class="h">Total Stories</div><div id="mStories" class="v">0</div></div></div>
-      <div class="card green"><div class="icon">✅</div><div><div class="h">Ready for Prod</div><div id="mReady" class="v">0</div></div></div>
-      <div class="card purple"><div class="icon">🚧</div><div><div class="h">In Progress</div><div id="mInProg" class="v">0</div></div></div>
-      <div class="card orange"><div class="icon">⚡</div><div><div class="h">Story Points</div><div id="mPoints" class="v">0</div></div></div>
-      <div class="card teal"><div class="icon">🧪</div><div><div class="h">Test Cases</div><div id="mTC" class="v">0</div></div></div>
-      <div class="card indigo"><div class="icon">🧾</div><div><div class="h">Executions</div><div id="mExec" class="v">0</div></div></div>
-      <div class="card red"><div class="icon">🐛</div><div><div class="h">Defects</div><div id="mDef" class="v">0</div></div></div>
-      <div class="card pink"><div class="icon">📊</div><div><div class="h">Coverage</div><div id="mCov" class="v">0%</div></div></div>
-      <div class="card gray"><div class="icon">🎯</div><div><div class="h">Completion</div><div id="mCompl" class="v">0%</div></div></div>
+      <div class="card blue"><div class="icon">📋</div><div><div class="h">Total Stories</div><div id="mStories" class="v">0</div><div class="small">unique user stories</div></div></div>
+      <div class="card orange"><div class="icon">⚡</div><div><div class="h">Story Points</div><div id="mPoints" class="v">0</div><div class="small">sum of all points</div></div></div>
+      <div class="card teal"><div class="icon">🧪</div><div><div class="h">Test Cases</div><div id="mTC" class="v">0</div><div class="small">total test cases</div></div></div>
+      <div class="card indigo"><div class="icon">🧾</div><div><div class="h">Test Executions</div><div id="mExec" class="v">0</div><div class="small">execution records</div></div></div>
+      <div class="card green"><div class="icon">✅</div><div><div class="h">Passed</div><div id="mPassed" class="v">0</div><div class="small">passed executions</div></div></div>
+      <div class="card red"><div class="icon">❌</div><div><div class="h">Failed</div><div id="mFailed" class="v">0</div><div class="small">failed executions</div></div></div>
+      <div class="card pink"><div class="icon">📊</div><div><div class="h">Coverage</div><div id="mCov" class="v">0%</div><div class="small">stories with tests</div></div></div>
+      <div class="card red"><div class="icon">🐛</div><div><div class="h">Defects</div><div id="mDef" class="v">0</div><div class="small">total defects</div></div></div>
     </div>
 
-    <!-- SEGMENTED ANALYSIS -->
-    <div class="section">
-      <div class="title">📋 User Stories Analysis</div>
-      <div class="grid two">
-        <div>
-          <h4 style="color:var(--muted-2);margin-bottom:8px">📊 Story Metrics</h4>
-          <div style="background:#f9fafb;padding:12px;border-radius:8px;border:1px solid var(--card-border)">
-            <div style="margin-bottom:6px">Total Stories: <span id="storyTotal" style="color:var(--blue);font-weight:700">0</span></div>
-            <div style="margin-bottom:6px">Avg Points/Story: <span id="storyAvgPoints" style="color:var(--green);font-weight:700">0</span></div>
-            <div style="margin-bottom:6px">Stories without Tests: <span id="storyNoTests" style="color:var(--red);font-weight:700">0</span></div>
-            <div>High Impact Stories: <span id="storyHighImpact" style="color:var(--orange);font-weight:700">0</span></div>
-          </div>
-        </div>
-        <div>
-          <h4 style="color:var(--muted-2);margin-bottom:8px">👥 Story Assignees</h4>
-          <div id="storyAssigneeWorkload" style="background:#f9fafb;padding:12px;border-radius:8px;border:1px solid var(--card-border);max-height:200px;overflow-y:auto"></div>
-        </div>
-        <div class="chart"><div class="h">📊 Stories by Status</div><div id="storyStatusChart" class="chart-body"></div></div>
-        <div class="chart"><div class="h">💥 Stories by Impact</div><div id="storyImpactChart" class="chart-body"></div></div>
-        <div class="chart"><div class="h">🏃 Stories by Sprint</div><div id="storySprintChart" class="chart-body"></div></div>
-        <div class="chart"><div class="h">📈 Story Points by Status</div><div id="storyPointsDistChart" class="chart-body"></div></div>
+    <!-- User Stories Analysis -->
+    <details class="collapse">
+      <summary><span>📋 User Stories Analysis</span><span class="chev">▸</span></summary>
+      <div class="content">
+        <div id="storiesContent"></div>
       </div>
-    </div>
+    </details>
 
-    <div class="section">
-      <div class="title">🧪 Test Cases & Executions Analysis</div>
-      <div class="grid two">
-        <div>
-          <h4 style="color:var(--muted-2);margin-bottom:8px">🧪 Test Metrics</h4>
-          <div style="background:#f9fafb;padding:12px;border-radius:8px;border:1px solid var(--card-border)">
-            <div style="margin-bottom:6px">Total Test Cases: <span id="testTotal" style="color:var(--blue);font-weight:700">0</span></div>
-            <div style="margin-bottom:6px">Total Executions: <span id="execTotal" style="color:var(--purple);font-weight:700">0</span></div>
-            <div style="margin-bottom:6px">Execution Coverage: <span id="execCoverage" style="color:var(--green);font-weight:700">0%</span></div>
-            <div style="margin-bottom:6px">Unassigned Executions: <span id="execUnassigned" style="color:var(--red);font-weight:700">0</span></div>
-            <div>Avg Executions/Test: <span id="execPerTest" style="color:var(--orange);font-weight:700">0</span></div>
-          </div>
-        </div>
-        <div>
-          <h4 style="color:var(--muted-2);margin-bottom:8px">👨‍💻 Test Execution Assignees</h4>
-          <div id="testAssigneeWorkload" style="background:#f9fafb;padding:12px;border-radius:8px;border:1px solid var(--card-border);max-height:200px;overflow-y:auto"></div>
-        </div>
-        <div class="chart"><div class="h">📊 Test Cases by Story</div><div id="testCasesByStoryChart" class="chart-body"></div></div>
-        <div class="chart"><div class="h">🧾 Executions by Assignee</div><div id="execByAssigneeChart" class="chart-body"></div></div>
-        <div class="chart"><div class="h">⚖️ Test Workload Balance</div><div id="testWorkloadChart" class="chart-body"></div></div>
-        <div class="chart"><div class="h">📈 Test Coverage Heatmap</div><div id="testCoverageHeatmapChart" class="chart-body"></div></div>
+    <!-- Test Cases & Executions Analysis -->
+    <details class="collapse">
+      <summary><span>🧪 Test Cases & Executions Analysis</span><span class="chev">▸</span></summary>
+      <div class="content">
+        <div id="testsContent"></div>
       </div>
-    </div>
+    </details>
 
-    <div class="section">
-      <div class="title">🐛 Defects Analysis</div>
-      <div class="grid two">
-        <div>
-          <h4 style="color:var(--muted-2);margin-bottom:8px">🐛 Defect Metrics</h4>
-          <div style="background:#f9fafb;padding:12px;border-radius:8px;border:1px solid var(--card-border)">
-            <div style="margin-bottom:6px">Total Defects: <span id="defectTotal" style="color:var(--red);font-weight:700">0</span></div>
-            <div style="margin-bottom:6px">Defect Density: <span id="defectDensityVal" style="color:var(--orange);font-weight:700">0</span></div>
-            <div style="margin-bottom:6px">Critical Defects: <span id="defectCritical" style="color:#b91c1c;font-weight:700">0</span></div>
-            <div style="margin-bottom:6px">Open Defects: <span id="defectOpen" style="color:#9a3412;font-weight:700">0</span></div>
-            <div>Defects per Story: <span id="defectPerStory" style="color:var(--indigo);font-weight:700">0</span></div>
-          </div>
-        </div>
-        <div>
-          <h4 style="color:var(--muted-2);margin-bottom:8px">🔍 Defect Creators</h4>
-          <div id="defectCreatorWorkload" style="background:#f9fafb;padding:12px;border-radius:8px;border:1px solid var(--card-border);max-height:200px;overflow-y:auto"></div>
-        </div>
-        <div class="chart"><div class="h">🐛 Defects by Status</div><div id="defectStatusChart" class="chart-body"></div></div>
-        <div class="chart"><div class="h">💥 Defects by Story Impact</div><div id="defectImpactChart" class="chart-body"></div></div>
-        <div class="chart"><div class="h">📊 Defects by Story</div><div id="defectsByStoryChart" class="chart-body"></div></div>
-        <div class="chart"><div class="h">⚠️ Defect Trend Analysis</div><div id="defectTrendChart" class="chart-body"></div></div>
+    <!-- Defects Analysis -->
+    <details class="collapse">
+      <summary><span>🐛 Defects Analysis</span><span class="chev">▸</span></summary>
+      <div class="content">
+        <div id="defectsContent"></div>
       </div>
-    </div>
+    </details>
 
-    <!-- DATA QUALITY -->
-    <div class="section">
-      <div class="title">✅ Data Quality Analysis</div>
-      <div id="dqContainer"></div>
-    </div>
-
-    <!-- EXPORT ACTIONS -->
-    <div class="section">
-      <div class="title">📤 Export Options</div>
-      <div class="actions">
-        <button class="btn secondary" onclick="copyEmailBody()">📧 Copy Email Body</button>
-        <button class="btn" onclick="exportPDF()">📄 Export PDF</button>
+    <!-- Production Defects Analysis -->
+    <details id="productionDefectsSection" class="collapse" style="display:none">
+      <summary><span>🔴 Production Defects Analysis</span><span class="chev">▸</span></summary>
+      <div class="content">
+        <div id="prodDefectsContent"></div>
       </div>
-    </div>
+    </details>
+
+    <!-- Data Quality -->
+    <details class="collapse">
+      <summary><span>✅ Data Quality Analysis</span><span class="chev">▸</span></summary>
+      <div class="content">
+        <div id="dqContainer"></div>
+      </div>
+    </details>
+
+    <!-- Export Options -->
+    <details class="collapse">
+      <summary><span>📤 Export Options</span><span class="chev">▸</span></summary>
+      <div class="content">
+        <div class="actions">
+          <button class="btn" onclick="exportHTML()">💾 Export HTML</button>
+        </div>
+      </div>
+    </details>
   </div>
 </div>
 
 <script>
-let globalData = { stories:[], testCases:[], executions:[], defects:[] };
+/* ===== Global State ===== */
+let globalData = { stories:[], testCases:[], executions:[], defects:[], release:null, productionDefects:[] };
 let metrics = {};
 
-document.addEventListener('DOMContentLoaded', () => {
-  const fileInput = document.getElementById('fileInput');
-  fileInput.addEventListener('change', e => {
-    if (e.target.files.length) processFile(e.target.files[0]);
+/* ===== UI Helpers ===== */
+function gid(id){ return document.getElementById(id); }
+function setTxt(id, val){ const el=gid(id); if (el) el.textContent = (val ?? ''); }
+function showProcessing(){ gid('processing')?.classList.add('show'); gid('error')?.classList.remove('show'); }
+function hideProcessing(){ gid('processing')?.classList.remove('show'); }
+function showError(msg){ const el=gid('error'); if (el){ el.textContent=msg; el.classList.add('show'); } }
+function showDashboard(){ gid('dashboard')?.classList.add('show'); }
+
+/* ===== Date Utilities ===== */
+function parseDMY(d){
+  if (!d) return null;
+  if (d instanceof Date && !isNaN(d.getTime())) return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const s = String(d).trim();
+  const num = Number(s);
+  if (!Number.isNaN(num) && /^\d+(\.\d+)?$/.test(s) && num > 25569 && num < 60000) {
+    const ms = (num - 25569) * 86400 * 1000;
+    const dt = new Date(ms);
+    return new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+  }
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return new Date(+m[1], +m[2]-1, +m[3]);
+  m = s.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})/);
+  if (m) return new Date(+m[3], +m[2]-1, +m[1]);
+  m = s.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2})(?!\d)/);
+  if (m) {
+    const yy = +m[3];
+    const yyyy = yy < 80 ? 2000 + yy : 1900 + yy;
+    return new Date(yyyy, +m[2] - 1, +m[1]);
+  }
+  return null;
+}
+
+function fmtDate(d){
+  if (d instanceof Date && !isNaN(d.getTime())) return d.toLocaleDateString();
+  const p = parseDMY(d);
+  return p ? p.toLocaleDateString() : (d ? String(d) : '-');
+}
+
+function stripHtml(s){
+  const txt = String(s ?? '');
+  const noTags = txt.replace(/<[^>]*>/g, ' ');
+  return noTags
+    .replace(/&nbsp;/g,' ')
+    .replace(/&amp;/g,'&')
+    .replace(/&quot;/g,'"')
+    .replace(/&#39;/g,"'")
+    .replace(/&lt;/g,'<')
+    .replace(/&gt;/g,'>')
+    .replace(/\s+/g,' ')
+    .trim();
+}
+
+/* ===== File Reading ===== */
+function readWorkbook(file){
+  return new Promise((resolve, reject) => {
+    const isCSV = /\.csv$/i.test(file.name || '');
+    const reader = new FileReader();
+    reader.onload = e => {
+      try{
+        if (isCSV) {
+          const text = e.target.result;
+          const wb = XLSX.read(text, { type:'string', raw:false });
+          return resolve(wb);
+        }
+        const buf = e.target.result;
+        let wb = null;
+        try { wb = XLSX.read(new Uint8Array(buf), { type:'array' }); } catch(_e){}
+        if (wb) {
+          const t = detectReportType(wb);
+          if (t) return resolve(wb);
+        }
+        const head = new TextDecoder('utf-8',{fatal:false}).decode(new Uint8Array(buf.slice(0, 4096)));
+        const m = head.match(/charset=([A-Za-z0-9._-]+)/i);
+        let enc = (m ? m[1] : 'utf-8').toLowerCase();
+        if (enc === 'latin1') enc = 'iso-8859-1';
+        let text;
+        try { text = new TextDecoder(enc).decode(new Uint8Array(buf)); }
+        catch(_e){ text = new TextDecoder('utf-8').decode(new Uint8Array(buf)); }
+        const wbText = XLSX.read(text, { type:'string' });
+        resolve(wbText);
+      }catch(err){ reject(err); }
+    };
+    reader.onerror = reject;
+    if (isCSV) reader.readAsText(file);
+    else reader.readAsArrayBuffer(file);
   });
-});
+}
 
-function showProcessing(){ document.getElementById('processing').classList.add('show'); document.getElementById('error').classList.remove('show'); }
-function hideProcessing(){ document.getElementById('processing').classList.remove('show'); }
-function showError(msg){ const el=document.getElementById('error'); el.textContent=msg; el.classList.add('show'); }
-function showDashboard(){ document.getElementById('dashboard').classList.add('show'); }
+/* ===== Report Type Detection ===== */
+function detectReportType(workbook){
+  const ws = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
+  if (!rows || !rows.length) return null;
+  const scanLimit = Math.min(rows.length, 50);
+  for (let i = 0; i < scanLimit; i++) {
+    const header = (rows[i] || []).map(h => String(h||'').toLowerCase().trim());
+    if (!header.length) continue;
+    if (header.some(h=>h.includes('release: release name')) &&
+        (header.some(h=>h.includes('planned start date')) || header.some(h=>h.includes('planned end date')))) {
+      return 'release';
+    }
+    const hasProdDefName = header.some(h => (h.includes('production defect') || h.includes('prod defect')) && h.includes('name'));
+    const hasReleaseCol = header.some(h => h.includes('release'));
+    const hasStatusCol = header.some(h => h.includes('status'));
+    if (hasProdDefName && hasReleaseCol && hasStatusCol) {
+      return 'productiondefects';
+    }
+    if (header.some(h=>h.includes('defect number')) && header.some(h=>h.includes('defect name'))) {
+      return 'defects';
+    }
+    if ((header.some(h=>h.includes('test case execution')) || header.some(h=>h.includes('age (in days)'))) &&
+        header.some(h=>h.includes('assigned to')) && header.some(h=>h.includes('status'))) {
+      return 'executions';
+    }
+    if ((header.some(h=>h.includes('test case number')) || header.some(h=>h.includes('test case: test case name'))) &&
+        header.some(h=>h.includes('story: story name'))) {
+      return 'testcases';
+    }
+    if (header.some(h=>h.includes('story number')) && header.some(h=>h.includes('story: story name'))) {
+      return 'stories';
+    }
+  }
+  return null;
+}
 
-/* ---------- File I/O ---------- */
-async function processFile(file){
+/* ===== Report Parsers ===== */
+function parseReleaseReport(workbook){
+  const ws = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
+  let headerRow = -1;
+  for (let i=0;i<rows.length;i++){
+    const r = rows[i]||[];
+    if (r.some(c => String(c).toLowerCase().includes('release: release name'))) { headerRow = i; break; }
+  }
+  if (headerRow === -1) return null;
+  const hdr = rows[headerRow] || [];
+  const col = {};
+  hdr.forEach((h, idx) => {
+    const t = String(h||'').trim().toLowerCase();
+    if (t.includes('release: release name')) col.name = idx;
+    if (t.includes('release: created by')) col.createdBy = idx;
+    if (t.includes('release: owner name')) col.owner = idx;
+    if (t.includes('planned start date')) col.plannedStart = idx;
+    if (t.includes('planned end date')) col.plannedEnd = idx;
+    if (t.includes('actual start date')) col.actualStart = idx;
+    if (t.includes('actual end date')) col.actualEnd = idx;
+  });
+  for (let i = headerRow + 1; i < rows.length; i++){
+    const r = rows[i] || [];
+    const name = String(r[col.name]||'').trim();
+    if (!name) continue;
+    return {
+      name,
+      createdBy: String(r[col.createdBy]||'').trim(),
+      owner: String(r[col.owner]||'').trim(),
+      plannedStart: String(r[col.plannedStart]||'').trim(),
+      plannedEnd: String(r[col.plannedEnd]||'').trim(),
+      actualStart: String(r[col.actualStart]||'').trim(),
+      actualEnd: String(r[col.actualEnd]||'').trim(),
+      _plannedStart: parseDMY(r[col.plannedStart]),
+      _plannedEnd: parseDMY(r[col.plannedEnd]),
+      _actualStart: parseDMY(r[col.actualStart]),
+      _actualEnd: parseDMY(r[col.actualEnd])
+    };
+  }
+  return null;
+}
+
+function parseStoriesReport(workbook){
+  const ws = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
+  let headerRow = -1;
+  for (let i=0;i<rows.length;i++){
+    const r = rows[i]||[];
+    if (r.some(c => String(c).toLowerCase().includes('story: story name'))) { headerRow=i; break; }
+  }
+  if (headerRow === -1) return [];
+  const hdr = rows[headerRow] || [];
+  const col = {};
+  hdr.forEach((h, idx) => {
+    const t = String(h||'').trim().toLowerCase();
+    if (t.includes('release')) col.release = idx;
+    if (t === 'sprint' || t.includes('sprint')) col.sprint = idx;
+    if (t.includes('story number')) col.storyNum = idx;
+    if (t.includes('story: story name')) col.storyName = idx;
+    if (t.includes('story status')) col.status = idx;
+    if (t.includes('story owner')) col.owner = idx;
+    if (t === 'assignee' || t.includes('assignee')) col.assignee = idx;
+    if (t.includes('# total test cases')) col.totalTC = idx;
+    if (t.includes('#test cases executed')) col.totalExec = idx;
+    if (t.includes('#total defects')) col.totalDef = idx;
+  });
+  const out = [];
+  for (let i = headerRow + 1; i < rows.length; i++){
+    const r = rows[i] || [];
+    const rawStoryName = String(r[col.storyName] || '').trim();
+    if (!rawStoryName) continue;
+    const m = rawStoryName.match(/Stab\.\d+/i);
+    const stabId = m ? m[0] : '';
+    const storyNumber = stabId || String(r[col.storyNum]||'').trim() || rawStoryName;
+    out.push({
+      storyNumber,
+      storyName: rawStoryName,
+      storyStatus: String(r[col.status] || '').trim(),
+      owner: String(r[col.owner]||'').trim(),
+      assignee: String(r[col.assignee]||'').trim(),
+      sprint: String(r[col.sprint]||'').trim(),
+      totalTC: Number(r[col.totalTC] || 0),
+      totalExec: Number(r[col.totalExec] || 0),
+      totalDef: Number(r[col.totalDef] || 0),
+      releaseName: String(r[col.release] || '').trim()
+    });
+  }
+  return out;
+}
+
+function parseDefectsReport(workbook){
+  const ws = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
+  let headerRow = -1;
+  for (let i=0;i<rows.length;i++){
+    const r = rows[i]||[];
+    const ok = r.some(c => String(c).includes('Defect Number')) &&
+               r.some(c => String(c).includes('Defect Name'));
+    if (ok){ headerRow=i; break; }
+  }
+  if (headerRow === -1) return [];
+  const hdr = rows[headerRow] || [];
+  const col = {};
+  hdr.forEach((h, idx) => {
+    const t = String(h||'').trim();
+    const tl = t.toLowerCase();
+    if (tl.includes('release')) col.release = idx;
+    if (tl.includes('sprint')) col.sprint = idx;
+    if (t === 'Story' || tl.includes('story')) col.story = idx;
+    if (t.includes('Defect Number')) col.defectNumber = idx;
+    if (t.includes('Defect Name')) col.defectName = idx;
+    if (t === 'Status' || /status/i.test(t)) col.status = idx;
+    if (/severity/i.test(t)) col.severity = idx;
+  });
+  const out = [];
+  for (let i = headerRow + 1; i < rows.length; i++){
+    const r = rows[i] || [];
+    const defectNum = String(r[col.defectNumber] || '').trim();
+    const defectName = String(r[col.defectName] || '').trim();
+    if (!defectNum && !defectName) continue;
+    const storyText = String(r[col.story] || '').replace(/<[^>]*>/g, '').trim();
+    const m = storyText.match(/Stab\.(\d+)/);
+    const storyNumber = m ? 'Stab.' + m[1] : '';
+    out.push({
+      storyNumber,
+      storyName: storyText,
+      defectNum,
+      defectName,
+      defectStatus: String(r[col.status] || '').trim(),
+      sprint: String(r[col.sprint] || '').trim(),
+      releaseName: String(r[col.release] || '').trim(),
+      severity: String(r[col.severity] || '').trim()
+    });
+  }
+  return out;
+}
+
+function parseTestCasesReport(workbook){
+  const ws = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
+  let headerRow = -1;
+  for (let i=0;i<rows.length;i++){
+    const r = rows[i]||[];
+    const has = r.some(c=>String(c).toLowerCase().includes('test case number')) ||
+                r.some(c=>String(c).toLowerCase().includes('test case: test case name'));
+    if (has){ headerRow=i; break; }
+  }
+  if (headerRow === -1) return [];
+  const hdr = rows[headerRow] || [];
+  const col = {};
+  hdr.forEach((h, idx) => {
+    const t = String(h||'').trim().toLowerCase();
+    if (t.includes('release name')) col.release = idx;
+    if (t === 'sprint' || t.includes('sprint')) col.sprint = idx;
+    if (t.includes('story: story name')) col.storyName = idx;
+    if (t.includes('test case number')) col.tcNumber = idx;
+    if (t.includes('test case: test case name')) col.tcName = idx;
+  });
+  const out = [];
+  for (let i = headerRow + 1; i < rows.length; i++){
+    const r = rows[i] || [];
+    const storyText = stripHtml(r[col.storyName] || '');
+    if (!storyText) continue;
+    const m = storyText.match(/Stab\.\d+/i);
+    const storyNumber = m ? m[0] : storyText;
+    const tcName = stripHtml(r[col.tcName] || r[col.tcNumber] || '').trim();
+    if (!tcName) continue;
+    out.push({
+      storyNumber,
+      storyName: storyText,
+      tcName,
+      tcNumber: String(r[col.tcNumber] || '').trim(),
+      releaseName: String(r[col.release] || '').trim(),
+      sprint: String(r[col.sprint] || '').trim()
+    });
+  }
+  return out;
+}
+
+function parseExecutionsReport(workbook){
+  const ws = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
+  let headerRow = -1;
+  for (let i=0;i<rows.length;i++){
+    const r = rows[i]||[];
+    const has = (r.some(c => String(c).toLowerCase().includes('test case execution')) ||
+                 r.some(c => String(c).toLowerCase().includes('age (in days)'))) &&
+                r.some(c => String(c).toLowerCase().includes('status'));
+    if (has){ headerRow=i; break; }
+  }
+  if (headerRow === -1) return [];
+  const hdr = rows[headerRow] || [];
+  const col = {};
+  hdr.forEach((h, idx) => {
+    const t = String(h||'').trim().toLowerCase();
+    if (t.includes('release name')) col.release = idx;
+    if (t.includes('sprint name') || t === 'sprint') col.sprint = idx;
+    if (t.includes('story name') || t === 'story') col.storyName = idx;
+    if ((t === 'test case' || t === 'test case name') && !t.includes('execution')) col.tcName = idx;
+    if (t.includes('assigned to')) col.assignedTo = idx;
+    if (t.includes('status')) col.status = idx;
+  });
+  const out = [];
+  for (let i = headerRow + 1; i < rows.length; i++){
+    const r = rows[i] || [];
+    const storyText = stripHtml(r[col.storyName] || '');
+    if (!storyText) continue;
+    const m = storyText.match(/Stab\.\d+/i);
+    const storyNumber = m ? m[0] : storyText;
+    const tcName = stripHtml(r[col.tcName] || '').trim();
+    if (!tcName) continue;
+    out.push({
+      storyNumber,
+      storyName: storyText,
+      tcName,
+      execAssigned: String(r[col.assignedTo] || '').trim(),
+      execStatus: String(r[col.status] || '').trim(),
+      sprint: String(r[col.sprint] || '').trim(),
+      releaseName: String(r[col.release] || '').trim()
+    });
+  }
+  return out;
+}
+
+function parseProductionDefectsReport(workbook){
+  const ws = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:'', raw:false });
+  let headerRow = -1;
+  for (let i = 0; i < Math.min(rows.length, 50); i++){
+    const r = rows[i] || [];
+    const hasName = r.some(c => {
+      const s = String(c||'').toLowerCase();
+      return (s.includes('production defect') || s.includes('prod defect')) && s.includes('name');
+    });
+    const hasRelease = r.some(c => String(c||'').toLowerCase().includes('release'));
+    if (hasName && hasRelease){ headerRow = i; break; }
+  }
+  if (headerRow === -1) return [];
+  const hdr = rows[headerRow] || [];
+  const col = {};
+  hdr.forEach((h, idx) => {
+    const tl = String(h||'').toLowerCase().trim().replace(/\s+/g,' ');
+    if (tl.includes('release')) col.release = idx;
+    if (tl.includes('production defect') && tl.includes('name')) col.defectName = idx;
+    if (tl.includes('status')) col.status = idx;
+    if (tl.includes('test case')) col.testCase = idx;
+  });
+  const out = [];
+  for (let i = headerRow + 1; i < rows.length; i++){
+    const r = rows[i] || [];
+    const name = stripHtml(r[col.defectName] || '').trim();
+    if (!name) continue;
+    out.push({
+      releaseName: stripHtml(col.release !== undefined ? r[col.release] : '').trim(),
+      defectName: name,
+      status: stripHtml(col.status !== undefined ? r[col.status] : '').trim(),
+      testCase: stripHtml(col.testCase !== undefined ? r[col.testCase] : '').trim()
+    });
+  }
+  return out;
+}
+
+/* ===== File Processing ===== */
+async function processReportFiles(files){
   showProcessing();
   try{
-    const workbook = await readExcel(file);
-    const data = parseData(workbook);
-
-    // (Optional) de-dupe test cases by storyNumber + tcName
-    const dedupedTC = Array.from(
-      new Map((data.testCases||[]).map(tc => [`${tc.storyNumber}||${tc.tcName}`, tc])).values()
-    );
-    data.testCases = dedupedTC;
-
-    globalData = data;
-    metrics = calculateMetrics(data);
+    if (!files || !files.length) { hideProcessing(); showError('No files selected'); return; }
+    globalData = { stories:[], testCases:[], executions:[], defects:[], release:null, productionDefects:[] };
+    let recognized = 0;
+    for (const file of files) {
+      const wb = await readWorkbook(file);
+      const type = detectReportType(wb);
+      if (!type) { console.warn('Unknown report type:', file.name); continue; }
+      if (type === 'release') {
+        recognized++;
+        const rel = parseReleaseReport(wb);
+        if (rel) globalData.release = rel;
+      } else if (type === 'productiondefects') {
+        recognized++;
+        const prodDefects = parseProductionDefectsReport(wb);
+        if (prodDefects && prodDefects.length) globalData.productionDefects = globalData.productionDefects.concat(prodDefects);
+      } else if (type === 'stories') {
+        recognized++;
+        const stories = parseStoriesReport(wb);
+        const byNum = new Map(globalData.stories.map(s => [s.storyNumber, s]));
+        stories.forEach(sr => {
+          const ex = byNum.get(sr.storyNumber);
+          if (ex) {
+            Object.assign(ex, sr);
+          } else {
+            byNum.set(sr.storyNumber, sr);
+          }
+        });
+        globalData.stories = Array.from(byNum.values());
+      } else if (type === 'defects') {
+        recognized++;
+        const defs = parseDefectsReport(wb);
+        if (defs && defs.length) globalData.defects = globalData.defects.concat(defs);
+      } else if (type === 'testcases') {
+        recognized++;
+        const tcs = parseTestCasesReport(wb);
+        if (tcs && tcs.length) globalData.testCases = globalData.testCases.concat(tcs);
+      } else if (type === 'executions') {
+        recognized++;
+        const execs = parseExecutionsReport(wb);
+        if (execs && execs.length) globalData.executions = globalData.executions.concat(execs);
+      }
+    }
+    if (recognized === 0) {
+      throw new Error('No recognized report types found. Export fresh CSV/XLSX reports with headers intact.');
+    }
+    if (globalData.testCases.length){
+      const mapTC = new Map();
+      globalData.testCases.forEach(tc => {
+        const k = `${tc.storyNumber}::${tc.tcName}`;
+        if (!mapTC.has(k)) mapTC.set(k, tc);
+      });
+      globalData.testCases = Array.from(mapTC.values());
+    }
+    metrics = calculateMetrics(globalData);
     renderDashboard();
     hideProcessing();
     showDashboard();
   }catch(err){
+    console.error(err);
     hideProcessing();
-    showError('Error processing file: ' + err.message);
+    showError('Error processing reports: ' + err.message);
   }
 }
 
-function readExcel(file){
-  return new Promise((resolve,reject)=>{
-    const reader = new FileReader();
-    reader.onload = e => {
-      try{
-        resolve(XLSX.read(new Uint8Array(e.target.result), {type:'array'}));
-      }catch(err){ reject(err); }
-    };
-    reader.onerror = reject;
-    reader.readAsArrayBuffer(file);
-  });
-}
-
-/* ---------- Parse (B..W columns) with carry-forward ---------- */
-function parseData(workbook){
-  const ws = workbook.Sheets[workbook.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
-
-  // Find header row
-  let headerRow = -1;
-  for (let i=0;i<rows.length;i++){
-    const row = rows[i]||[];
-    const hasReq = row.some(c => String(c).includes('Story Name')) &&
-                   row.some(c => String(c).includes('Story Number')) &&
-                   row.some(c => String(c).includes('Story Status'));
-    if (hasReq){ headerRow=i; break; }
-  }
-  if (headerRow === -1) throw new Error('Could not find header row');
-
-  const stories=[]; const testCases=[]; const executions=[]; const defects=[];
-  const seenStories = new Set();
-
-  // Carry-forward pointers for continuation rows
-  let currentStoryNumber = '';
-  let currentStoryName   = '';
-
-  for (let i=headerRow+1;i<rows.length;i++){
-    const r = rows[i]||[];
-
-    const rowStoryName   = String(r[1]||'').trim();  // B
-    const rowStoryNumber = String(r[2]||'').trim();  // C
-
-    // If we have a new story number on this row, update carry-forward
-    if (rowStoryNumber){
-      currentStoryNumber = rowStoryNumber;
-      currentStoryName   = rowStoryName;
-    }
-
-    // Skip orphan rows that appear before any story was established
-    if (!currentStoryNumber) continue;
-
-    // Add the story exactly once when we encounter its header row
-    if (rowStoryNumber && !seenStories.has(rowStoryNumber)){
-      seenStories.add(rowStoryNumber);
-      stories.push({
-        storyNumber: currentStoryNumber,
-        storyName  : currentStoryName,
-        storyStatus:String(r[3]||'').trim(),     // D
-        createdBy  :String(r[5]||'').trim(),     // F
-        assignee   :String(r[6]||'').trim(),     // G
-        owner      :String(r[7]||'').trim(),     // H
-        impact     :String(r[8]||'').trim(),     // I
-        points     :Number(r[9])||0,             // J
-        devBy      :String(r[10]||'').trim(),    // K
-        lastModBy  :String(r[11]||'').trim(),    // L
-        sprint     :String(r[12]||'').trim(),    // M
-        totalTC    :Number(r[13])||0,            // N
-        totalExec  :Number(r[16])||0,            // Q
-        totalDef   :Number(r[18])||0             // S
-      });
-    }
-
-    // Children (always bound to currentStoryNumber/Name)
-    const tcName       = String(r[14]||'').trim();    // O
-    const tceNum       = String(r[15]||'').trim();    // P
-    const execAssigned = String(r[17]||'').trim();    // R
-
-    if (tcName){
-      testCases.push({ storyNumber: currentStoryNumber, storyName: currentStoryName, tcName });
-    }
-    if (tceNum || execAssigned){
-      executions.push({ storyNumber: currentStoryNumber, storyName: currentStoryName, tcName, tceNum, execAssigned });
-    }
-
-    const defectName       = String(r[19]||'').trim(); // T
-    const defectNum        = String(r[20]||'').trim(); // U
-    const defectCreatedBy  = String(r[21]||'').trim(); // V
-    const defectStatus     = String(r[22]||'').trim(); // W
-
-    if (defectNum || defectName){
-      defects.push({
-        storyNumber: currentStoryNumber,
-        storyName  : currentStoryName,
-        tcName, tceNum,
-        defectNum, defectName,
-        defectStatus, defectCreatedBy
-      });
-    }
-  }
-  return { stories, testCases, executions, defects };
-}
-
-/* ---------- Metrics ---------- */
+/* ===== Metrics Calculation ===== */
 function calculateMetrics(data){
-  const { stories, testCases, executions, defects } = data;
-  const totalStories = stories.length;
-  const totalPoints = stories.reduce((s,x)=>s+(x.points||0),0);
-
-  const totalTC = testCases.filter(tc => tc.tcName && tc.tcName.trim()).length;
-  const totalExec = executions.filter(e => e.tceNum || e.execAssigned).length;
-  const totalDef = defects.filter(d => d.defectNum || d.defectName).length;
-
+  const m = {};
+  m.totalStories = data.stories.length;
+  m.totalPoints = data.stories.reduce((sum, s) => sum + (s.points || 0), 0);
+  m.totalTC = data.testCases.length;
+  m.totalExec = data.executions.length;
+  const statusCount = {};
+  data.executions.forEach(e => {
+    const st = (e.execStatus || '').toLowerCase();
+    statusCount[st] = (statusCount[st] || 0) + 1;
+  });
+  m.passed = statusCount['passed'] || 0;
+  m.failed = statusCount['failed'] || 0;
+  m.blocked = statusCount['blocked'] || 0;
+  m.notStarted = statusCount['not started'] || 0;
+  m.inProgress = statusCount['in progress'] || 0;
   const storiesWithTC = new Set();
-  testCases.forEach(tc => { if (tc.tcName && tc.storyNumber) storiesWithTC.add(tc.storyNumber); });
-
-  const statusDist = {}, impactDist={}, sprintDist={}, assigneeDist={}, pointsByStatus={};
-  for (const s of stories){
-    if (s.storyStatus) statusDist[s.storyStatus]=(statusDist[s.storyStatus]||0)+1;
-    if (s.impact) impactDist[s.impact]=(impactDist[s.impact]||0)+1;
-    if (s.sprint) sprintDist[s.sprint]=(sprintDist[s.sprint]||0)+1;
-    if (s.assignee) assigneeDist[s.assignee]=(assigneeDist[s.assignee]||0)+1;
-    if (s.storyStatus) pointsByStatus[s.storyStatus]=(pointsByStatus[s.storyStatus]||0)+(s.points||0);
-  }
-  const readyForProd = statusDist['Ready for Production Deployment']||0;
-  const inProgress = statusDist['Development In Progress']||0;
-
-  const execAssigneeDist = {};
-  for (const e of executions){
-    if (e.tceNum || (e.execAssigned && e.execAssigned.trim())){
-      const who = (e.execAssigned && e.execAssigned.trim()) || '(unassigned)';
-      execAssigneeDist[who]=(execAssigneeDist[who]||0)+1;
-    }
-  }
-
-  const coverage = totalStories ? ((storiesWithTC.size/totalStories)*100).toFixed(1) : '0.0';
-  const completion = totalStories ? ((readyForProd/totalStories)*100).toFixed(1) : '0.0';
-  const defectDensity = totalPoints>0 ? (totalDef/totalPoints).toFixed(2) : '0.00';
-  const executedTests = executions.filter(e => e.execAssigned && e.execAssigned.trim()).length;
-  const testEfficiency = totalTC>0 ? ((executedTests/totalTC)*100).toFixed(1) : '0.0';
-  const avgPointsPerStory = totalStories>0 ? (totalPoints/totalStories).toFixed(1) : '0.0';
-  const testsPerStory = totalStories>0 ? (totalTC/totalStories).toFixed(1) : '0.0';
-
-  return {
-    totalStories, totalPoints, totalTC, totalExec, totalDef,
-    readyForProd, inProgress,
-    coverage, completion, defectDensity, testEfficiency, avgPointsPerStory, testsPerStory,
-    statusDist, impactDist, sprintDist, assigneeDist, pointsByStatus, execAssigneeDist
-  };
+  data.testCases.forEach(tc => storiesWithTC.add(tc.storyNumber));
+  m.coverage = m.totalStories > 0 ? Math.round((storiesWithTC.size / m.totalStories) * 100) : 0;
+  const readyStories = data.stories.filter(s => (s.storyStatus || '').toLowerCase().includes('ready')).length;
+  m.completion = m.totalStories > 0 ? Math.round((readyStories / m.totalStories) * 100) : 0;
+  m.totalDefects = data.defects.length;
+  m.totalProdDefects = data.productionDefects.length;
+  return m;
 }
 
-/* ---------- Rendering ---------- */
+/* ===== Dashboard Rendering ===== */
 function renderDashboard(){
-  // Main cards
   setTxt('mStories', metrics.totalStories);
-  setTxt('mReady', metrics.readyForProd);
-  setTxt('mInProg', metrics.inProgress);
   setTxt('mPoints', metrics.totalPoints);
   setTxt('mTC', metrics.totalTC);
   setTxt('mExec', metrics.totalExec);
-  setTxt('mDef', metrics.totalDef);
+  setTxt('mPassed', metrics.passed);
+  setTxt('mFailed', metrics.failed);
   setTxt('mCov', metrics.coverage + '%');
-  setTxt('mCompl', metrics.completion + '%');
-
-  // User Stories segment
-  const storiesWithoutTC = globalData.stories.filter(s => !globalData.testCases.some(tc => tc.storyNumber===s.storyNumber && tc.tcName));
-  const highImpactCount = globalData.stories.filter(s => s.impact==='High' || s.impact==='Critical').length;
-
-  setTxt('storyTotal', metrics.totalStories);
-  setTxt('storyAvgPoints', metrics.avgPointsPerStory);
-  setTxt('storyNoTests', storiesWithoutTC.length);
-  setTxt('storyHighImpact', highImpactCount);
-
-  renderWorkloadList('storyAssigneeWorkload', metrics.assigneeDist, (name, count) => `
-    <div style="margin-bottom:8px;padding:8px;background:#ffffff;border:1px solid #e5e7eb;border-radius:6px">
-      <div style="font-weight:600;color:#111827">${name}</div>
-      <div style="font-size:0.85rem;color:#6b7280">${count} stories</div>
-    </div>`);
-
-  renderChart('storyStatusChart', metrics.statusDist, {
-    'Ready for Production Deployment':'#10b981','Development In Progress':'#f59e0b','Ready for Testing':'#3b82f6','Ready for Development':'#8b5cf6'
-  });
-  renderChart('storyImpactChart', metrics.impactDist, {
-    'Critical':'#dc2626','High':'#ea580c','Medium':'#f59e0b','Low':'#10b981'
-  });
-  renderChart('storySprintChart', metrics.sprintDist, {});
-  renderChart('storyPointsDistChart', metrics.pointsByStatus, {
-    'Ready for Production Deployment':'#10b981','Development In Progress':'#f59e0b','Ready for Testing':'#3b82f6','Ready for Development':'#8b5cf6'
-  });
-
-  // Tests & Executions
-  setTxt('testTotal', metrics.totalTC);
-  setTxt('execTotal', metrics.totalExec);
-  setTxt('execCoverage', metrics.testEfficiency + '%');
-  const unassigned = globalData.executions.filter(e => !e.execAssigned && (e.tceNum || e.tcName)).length;
-  setTxt('execUnassigned', unassigned);
-  const execPerTest = metrics.totalTC>0 ? (metrics.totalExec/metrics.totalTC).toFixed(1) : '0.0';
-  setTxt('execPerTest', execPerTest);
-
-  renderWorkloadList('testAssigneeWorkload', metrics.execAssigneeDist, (name, count) => `
-    <div style="margin-bottom:8px;padding:8px;background:#ffffff;border:1px solid #e5e7eb;border-radius:6px">
-      <div style="font-weight:600;color:#111827">${name}</div>
-      <div style="font-size:0.85rem;color:#6b7280">${count} executions</div>
-    </div>`);
-
-  const testCasesByStory = {};
-  globalData.testCases.forEach(tc => {
-    if (tc.storyNumber) testCasesByStory[tc.storyNumber]=(testCasesByStory[tc.storyNumber]||0)+1;
-  });
-  renderChart('testCasesByStoryChart', testCasesByStory, {});
-  renderChart('execByAssigneeChart', metrics.execAssigneeDist, {});
-  if (gid('testWorkloadChart')) renderTestWorkloadBalance('testWorkloadChart', metrics.execAssigneeDist);
-  if (gid('testCoverageHeatmapChart')) renderTestCoverageHeatmap('testCoverageHeatmapChart');
-
-  // Defects
-  const criticalDefects = globalData.defects.filter(d => {
-    const s = globalData.stories.find(x => x.storyNumber===d.storyNumber);
-    return (s?.impact)==='Critical';
-  }).length;
-  const openDefects = globalData.defects.filter(d => d.defectStatus && d.defectStatus!=='Closed' && d.defectStatus!=='Resolved').length;
-
-  setTxt('defectTotal', metrics.totalDef);
-  setTxt('defectDensityVal', metrics.defectDensity);
-  setTxt('defectCritical', criticalDefects);
-  setTxt('defectOpen', openDefects);
-  setTxt('defectPerStory', (metrics.totalDef/Math.max(1,metrics.totalStories)).toFixed(1));
-
-  const defectStatusDist = {};
-  globalData.defects.forEach(d => {
-    if (d.defectStatus) defectStatusDist[d.defectStatus]=(defectStatusDist[d.defectStatus]||0)+1;
-  });
-  renderChart('defectStatusChart', defectStatusDist, {});
-
-  const defectImpactDist = {};
-  globalData.defects.forEach(d => {
-    const s = globalData.stories.find(x => x.storyNumber===d.storyNumber);
-    const impact = s?.impact || 'Unknown';
-    defectImpactDist[impact]=(defectImpactDist[impact]||0)+1;
-  });
-  renderChart('defectImpactChart', defectImpactDist, {'Critical':'#dc2626','High':'#ea580c','Medium':'#f59e0b','Low':'#10b981'});
-
-  const defectsByStory = {};
-  globalData.defects.forEach(d => {
-    if (d.storyNumber) defectsByStory[d.storyNumber]=(defectsByStory[d.storyNumber]||0)+1;
-  });
-  renderChart('defectsByStoryChart', defectsByStory, {});
-  if (gid('defectTrendChart')) renderDefectTrend('defectTrendChart');
-
-  // Data quality
+  setTxt('mDef', metrics.totalDefects);
+  
+  if (globalData.release) {
+    gid('releaseSection').style.display = 'block';
+    setTxt('rName', globalData.release.name);
+    setTxt('rOwner', globalData.release.owner);
+    setTxt('rCreatedBy', globalData.release.createdBy);
+    setTxt('rPlanRange', `${fmtDate(globalData.release.plannedStart)} → ${fmtDate(globalData.release.plannedEnd)}`);
+    setTxt('rActualStart', fmtDate(globalData.release.actualStart));
+    setTxt('rActualEnd', fmtDate(globalData.release.actualEnd));
+  }
+  
+  renderStoriesSection();
+  renderTestsSection();
+  renderDefectsSection();
   renderDataQuality();
-}
-
-/* Small DOM helpers */
-function gid(id){ return document.getElementById(id); }
-function setTxt(id, val){ const el=gid(id); if (el) el.textContent = (val ?? '') }
-
-/* Lists & Charts (light styles) */
-function renderWorkloadList(containerId, workloadData, templateFn){
-  const container = gid(containerId);
-  if (!container) return;
-  if (!workloadData || Object.keys(workloadData).length===0){
-    container.innerHTML = '<div class="small" style="font-style:italic">No data available</div>'; return;
+  
+  if (globalData.productionDefects.length > 0) {
+    gid('productionDefectsSection').style.display = 'block';
+    renderProdDefectsSection();
   }
-  const sorted = Object.entries(workloadData).sort((a,b)=>b[1]-a[1]);
-  container.innerHTML = sorted.map(([name,count])=>templateFn(name,count)).join('');
 }
 
-function renderChart(containerId, data, colors){
-  const container = gid(containerId);
-  if (!container) return;
-  const entries = Object.entries(data||{});
-  if (!entries.length){ container.innerHTML='<div class="small" style="text-align:center;padding:20px">No data</div>'; return; }
-  const max = Math.max(...entries.map(e=>e[1]));
-  let html='<div style="padding:8px">';
-  entries.sort((a,b)=>b[1]-a[1]).forEach(([key,val])=>{
-    const pct = max>0 ? (val/max)*100 : 0;
-    const color = (colors && colors[key]) || '#6366f1';
-    const label = key.length>48 ? key.slice(0,48)+'…' : key;
-    html += `
-      <div style="margin-bottom:10px">
-        <div style="display:flex;justify-content:space-between;margin-bottom:6px">
-          <span style="font-weight:600;color:#374151" title="${key}">${label}</span>
-          <span style="font-weight:800;color:#111827">${val}</span>
-        </div>
-        <div style="background:${getComputedStyle(document.documentElement).getPropertyValue('--track') || '#e5e7eb'};border-radius:6px;height:10px">
-          <div style="background:${color};height:100%;width:${pct}%;border-radius:6px"></div>
-        </div>
-      </div>`;
+function renderStoriesSection(){
+  const statusCounts = {};
+  globalData.stories.forEach(s => {
+    const st = s.storyStatus || 'Unknown';
+    statusCounts[st] = (statusCounts[st] || 0) + 1;
   });
-  html+='</div>'; container.innerHTML=html;
+  let html = '<h4 style="color:var(--muted-2);margin-bottom:8px">📊 Story Status Distribution</h4>';
+  html += '<div style="background:#f9fafb;padding:12px;border-radius:8px;border:1px solid var(--card-border)">';
+  Object.entries(statusCounts).forEach(([status, count]) => {
+    html += `<div style="margin-bottom:6px">${status}: <span style="font-weight:700">${count}</span></div>`;
+  });
+  html += '</div>';
+  gid('storiesContent').innerHTML = html;
 }
 
-/* Balanced workload bar list (light) */
-function renderTestWorkloadBalance(containerId, execAssigneeDist){
-  const container = gid(containerId);
-  if (!container) return;
-  const entries = Object.entries(execAssigneeDist||{});
-  if (!entries.length){ container.innerHTML='<div class="small" style="text-align:center;padding:20px">No execution data</div>'; return; }
-  const values = entries.map(([_,v])=>v);
-  const avg = values.reduce((a,b)=>a+b,0)/values.length;
-  const max = Math.max(...values);
-
-  let html = '<div style="padding:8px">';
-  html += `<div class="small" style="margin-bottom:8px">Average: <strong>${avg.toFixed(1)}</strong> executions</div>`;
-
-  entries.sort((a,b)=>b[1]-a[1]).forEach(([name,count])=>{
-    const pct = (count/max)*100;
-    const isOver = count > avg*1.5, isUnder = count < avg*0.5;
-    const color = isOver ? '#ef4444' : isUnder ? '#f59e0b' : '#10b981';
-    html += `
-      <div style="margin-bottom:10px">
-        <div style="display:flex;justify-content:space-between;margin-bottom:6px">
-          <span style="font-weight:600;color:#111827;font-size:0.9rem">${name}</span>
-          <span style="color:${color};font-weight:800">${count}</span>
-        </div>
-        <div style="background:#e5e7eb;border-radius:6px;height:8px">
-          <div style="background:${color};height:100%;width:${pct}%;border-radius:6px"></div>
-        </div>
-      </div>`;
+function renderTestsSection(){
+  const tcByStory = {};
+  globalData.testCases.forEach(tc => {
+    if (!tcByStory[tc.storyNumber]) tcByStory[tc.storyNumber] = [];
+    tcByStory[tc.storyNumber].push(tc);
   });
-  html+='</div>'; container.innerHTML=html;
+  let html = '<h4 style="color:var(--muted-2);margin-bottom:8px">🧪 Test Cases by Story</h4>';
+  html += '<div style="background:#f9fafb;padding:12px;border-radius:8px;border:1px solid var(--card-border);max-height:400px;overflow-y:auto">';
+  Object.entries(tcByStory).forEach(([story, tests]) => {
+    html += `<div style="margin-bottom:6px"><strong>${story}</strong>: ${tests.length} test case(s)</div>`;
+  });
+  html += '</div>';
+  gid('testsContent').innerHTML = html;
 }
 
-/* Heatmap per sprint using computed testCasesByStory (light) */
-function renderTestCoverageHeatmap(containerId){
-  const container = gid(containerId);
-  if (!container) return;
-  const stories = globalData.stories||[];
-  if (!stories.length){ container.innerHTML='<div class="small" style="text-align:center;padding:20px">No story data</div>'; return; }
-
-  // build tests per story
-  const testCasesByStory = {};
-  (globalData.testCases||[]).forEach(tc => {
-    if (tc.storyNumber) testCasesByStory[tc.storyNumber]=(testCasesByStory[tc.storyNumber]||0)+1;
+function renderDefectsSection(){
+  const statusCounts = {};
+  globalData.defects.forEach(d => {
+    const st = d.defectStatus || 'Unknown';
+    statusCounts[st] = (statusCounts[st] || 0) + 1;
   });
-
-  const sprintCoverage = {};
-  stories.forEach(s=>{
-    const sprint = s.sprint || 'No Sprint';
-    const tests = testCasesByStory[s.storyNumber]||0;
-    sprintCoverage[sprint] = sprintCoverage[sprint] || { stories:0, withTests:0, totalTests:0 };
-    sprintCoverage[sprint].stories++;
-    sprintCoverage[sprint].totalTests += tests;
-    if (tests>0) sprintCoverage[sprint].withTests++;
+  let html = '<h4 style="color:var(--muted-2);margin-bottom:8px">🐛 Defect Status Distribution</h4>';
+  html += '<div style="background:#f9fafb;padding:12px;border-radius:8px;border:1px solid var(--card-border)">';
+  Object.entries(statusCounts).forEach(([status, count]) => {
+    html += `<div style="margin-bottom:6px">${status}: <span style="font-weight:700;color:var(--red)">${count}</span></div>`;
   });
-
-  let html = '<div style="padding:8px">';
-  Object.entries(sprintCoverage).forEach(([sprint,d])=>{
-    const cov = d.stories>0 ? (d.withTests/d.stories)*100 : 0;
-    const color = cov>=80 ? '#10b981' : cov>=60 ? '#f59e0b' : '#ef4444';
-    html += `
-      <div style="margin-bottom:10px;padding:10px;background:#ffffff;border:1px solid #e5e7eb;border-radius:8px">
-        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-          <span style="font-weight:700;color:#111827">${sprint}</span>
-          <span style="color:${color};font-weight:800">${cov.toFixed(1)}%</span>
-        </div>
-        <div class="small">
-          ${d.withTests}/${d.stories} stories tested • ${d.totalTests} total tests
-        </div>
-      </div>`;
-  });
-  html += '</div>'; container.innerHTML = html;
+  html += '</div>';
+  gid('defectsContent').innerHTML = html;
 }
 
-/* Defect trend grouped by story impact (light) */
-function renderDefectTrend(containerId){
-  const container = gid(containerId);
-  if (!container) return;
-  const defects = globalData.defects||[];
-  if (!defects.length){ container.innerHTML='<div class="small" style="text-align:center;padding:20px">No defect data</div>'; return; }
-
-  const trend = {};
-  defects.forEach(d=>{
-    const s = globalData.stories.find(x=>x.storyNumber===d.storyNumber);
-    const impact = s?.impact || 'Unknown';
-    const key = `${impact} Impact`;
-    trend[key] = trend[key] || { total:0, open:0, critical:0 };
-    trend[key].total++;
-    if (d.defectStatus !== 'Closed' && d.defectStatus !== 'Resolved') trend[key].open++;
-    if (impact === 'Critical') trend[key].critical++;
+function renderProdDefectsSection(){
+  const statusCounts = {};
+  globalData.productionDefects.forEach(d => {
+    const st = d.status || 'Unknown';
+    statusCounts[st] = (statusCounts[st] || 0) + 1;
   });
-
-  let html = '<div style="padding:8px">';
-  Object.entries(trend).sort((a,b)=>b[1].total-a[1].total).forEach(([cat,d])=>{
-    const openPct = d.total>0 ? (d.open/d.total)*100 : 0;
-    const color = openPct>50? '#ef4444' : openPct>25? '#f59e0b' : '#10b981';
-    html += `
-      <div style="margin-bottom:10px;padding:10px;background:#ffffff;border:1px solid #e5e7eb;border-radius:8px">
-        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-          <span style="font-weight:700;color:#111827">${cat}</span>
-          <span style="color:${color};font-weight:800">${d.total} total</span>
-        </div>
-        <div class="small">
-          ${d.open} open (${openPct.toFixed(1)}%) • ${d.critical} critical
-        </div>
-        <div style="background:#e5e7eb;border-radius:6px;height:6px;margin-top:6px">
-          <div style="background:${color};height:100%;width:${openPct}%;border-radius:6px"></div>
-        </div>
-      </div>`;
+  const withTC = globalData.productionDefects.filter(d => d.testCase && d.testCase.trim()).length;
+  const coverage = globalData.productionDefects.length > 0 ? Math.round((withTC / globalData.productionDefects.length) * 100) : 0;
+  
+  let html = '<h4 style="color:var(--muted-2);margin-bottom:8px">🔴 Production Defect Metrics</h4>';
+  html += '<div style="background:#f9fafb;padding:12px;border-radius:8px;border:1px solid var(--card-border)">';
+  html += `<div style="margin-bottom:6px">Total: <span style="font-weight:700;color:var(--red)">${globalData.productionDefects.length}</span></div>`;
+  html += `<div style="margin-bottom:6px">With Test Case: <span style="font-weight:700;color:var(--green)">${withTC}</span></div>`;
+  html += `<div style="margin-bottom:6px">Coverage: <span style="font-weight:700;color:var(--blue)">${coverage}%</span></div>`;
+  html += '<h5 style="margin-top:12px;margin-bottom:6px">Status Breakdown:</h5>';
+  Object.entries(statusCounts).forEach(([status, count]) => {
+    html += `<div style="margin-bottom:4px">${status}: <span style="font-weight:700">${count}</span></div>`;
   });
-  html += '</div>'; container.innerHTML=html;
+  html += '</div>';
+  gid('prodDefectsContent').innerHTML = html;
 }
 
-/* Data quality block (light) */
 function renderDataQuality(){
-  const container = gid('dqContainer');
-  const { stories, testCases, executions, defects } = globalData;
-  let html='';
-
-  const storiesWithoutTC = stories.filter(s => !testCases.some(tc => tc.storyNumber===s.storyNumber && tc.tcName));
-  if (storiesWithoutTC.length){
-    html += `<div class="issue" style="margin-bottom:8px"><strong>${storiesWithoutTC.length}</strong> stories without actual test cases
-      <div class="small" style="margin-top:4px">Stories: ${storiesWithoutTC.map(s=>s.storyNumber).join(', ')}</div></div>`;
-  } else {
-    html += `<div class="success" style="margin-bottom:8px">✅ All stories have test cases</div>`;
+  const storiesWithoutTests = globalData.stories.filter(s => {
+    return !globalData.testCases.some(tc => tc.storyNumber === s.storyNumber);
+  });
+  let html = '<h4 style="color:var(--muted-2);margin-bottom:8px">✅ Data Quality Checks</h4>';
+  html += '<div style="background:#f9fafb;padding:12px;border-radius:8px;border:1px solid var(--card-border)">';
+  html += `<div class="${storiesWithoutTests.length > 0 ? 'warn' : 'success'}" style="margin-bottom:8px">`;
+  html += `Stories without test cases: <strong>${storiesWithoutTests.length}</strong>`;
+  html += '</div>';
+  if (storiesWithoutTests.length > 0) {
+    html += '<details style="margin-top:8px"><summary style="cursor:pointer;font-weight:600">View stories without tests</summary>';
+    html += '<ul style="margin-top:8px;padding-left:20px">';
+    storiesWithoutTests.forEach(s => {
+      html += `<li>${s.storyNumber}: ${s.storyName}</li>`;
+    });
+    html += '</ul></details>';
   }
-
-  const tcWithoutExec = testCases.filter(tc => !executions.some(e => e.storyNumber===tc.storyNumber && e.tcName===tc.tcName && (e.tceNum || e.execAssigned)));
-  if (tcWithoutExec.length){
-    html += `<div class="issue" style="margin-bottom:8px"><strong>${tcWithoutExec.length}</strong> test cases without executions</div>`;
-  } else {
-    html += `<div class="success" style="margin-bottom:8px">✅ All test cases have executions</div>`;
-  }
-
-  const execWithoutAssignee = executions.filter(e => !e.execAssigned && (e.tceNum || e.tcName));
-  if (execWithoutAssignee.length){
-    html += `<div class="warn" style="margin-bottom:8px"><strong>${execWithoutAssignee.length}</strong> executions without assignees</div>`;
-  } else {
-    html += `<div class="success" style="margin-bottom:8px">✅ All executions have assignees</div>`;
-  }
-
-  const highImpactNoTests = stories.filter(s => (s.impact==='Critical'||s.impact==='High') && !testCases.some(tc => tc.storyNumber===s.storyNumber && tc.tcName));
-  if (highImpactNoTests.length){
-    html += `<div class="issue" style="margin-bottom:8px"><strong>${highImpactNoTests.length}</strong> high/critical impact stories without test cases
-      <div class="small" style="margin-top:4px">Stories: ${highImpactNoTests.map(s=>`${s.storyNumber} (${s.impact})`).join(', ')}</div></div>`;
-  } else {
-    html += `<div class="success" style="margin-bottom:8px">✅ All high impact stories have test coverage</div>`;
-  }
-
-  html += `<div style="margin-top:12px;padding:10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:0.9rem;color:#1e3a8a">
-    <strong>Data Summary:</strong><br>
-    • ${stories.length} unique stories found<br>
-    • ${testCases.length} test cases with names found<br>
-    • ${executions.length} execution records found<br>
-    • ${defects.length} defect records found
-  </div>`;
-  container.innerHTML = html;
+  html += '</div>';
+  gid('dqContainer').innerHTML = html;
 }
 
-/* ---------- Export helpers (white bg) ---------- */
-async function capture(el, scale=Math.max(2,window.devicePixelRatio||1)){
-  const canvas = await html2canvas(el, {backgroundColor:'#ffffff', scale});
-  return canvas.toDataURL('image/png');
-}
-async function exportPDF(){
-  if (!globalData.stories.length){ alert('Please load data first'); return; }
-  const { jsPDF } = window.jspdf;
-  const pdf = new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
-  const hide = document.querySelectorAll('.upload'); const keep=[];
-  hide.forEach(el=>{ keep.push({el,display:el.style.display}); el.style.display='none'; });
-  const shot = await capture(document.querySelector('.container'));
-  keep.forEach(k=>k.el.style.display=k.display||'');
-  const img = new Image(); img.src=shot;
-  img.onload=()=>{ const ratio=img.width/img.height; const w=190; const h=w/ratio; pdf.addImage(shot,'PNG',10,10,w,h); pdf.save(`Release_Progress_Report_${new Date().toISOString().slice(0,10)}.pdf`); };
-}
-async function copyEmailBody(){
-  if (!globalData.stories.length){ alert('Please load data first.'); return; }
-  const metr = await capture(document.querySelector('.metrics'));
-  const firstSection = await capture(document.querySelectorAll('.section')[0]);
-  const charts = await capture(document.querySelectorAll('.section')[1]);
-
-  const W = 1200;
-  const img = (src,w)=>`<img src="${src}" width="${w}" style="display:block;width:${w}px;height:auto;border:1px solid #e5e7eb;border-radius:6px;margin:6px 0"/>`;
-  const html = `
-  <!doctype html><html><body style="margin:0;padding:0;background:#fff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
-    <div style="padding:16px;margin:0 auto;max-width:${W}px">
-      <div style="background:linear-gradient(135deg,#ffffff,#f1f5f9);color:#111827;padding:16px;border-radius:12px;border:1px solid #e5e7eb;margin-bottom:16px">
-        <div style="font-weight:800;font-size:1.5rem">📊 Release Progress Report</div>
-        <div style="font-size:14px;color:#6b7280">Generated ${new Date().toLocaleString()}</div>
-      </div>
-      <h3 style="margin:16px 4px;color:#111827">📈 Key Metrics</h3>${img(metr,W-80)}
-      <h3 style="margin:16px 4px;color:#111827">🎯 Analytics</h3>${img(firstSection,W-80)}
-      <h3 style="margin:16px 4px;color:#111827">📊 Distributions</h3>${img(charts,W-80)}
-      <div style="margin-top:20px;padding:12px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px">
-        <strong>Summary:</strong> ${metrics.completion}% completion, ${metrics.totalStories} stories, 
-        ${metrics.totalDef} defects, ${metrics.coverage}% stories with tests.
-      </div>
-    </div>
-  </body></html>`;
-
-  if (navigator.clipboard && window.ClipboardItem){
-    await navigator.clipboard.write([
-      new ClipboardItem({ "text/html": new Blob([html],{type:"text/html"}), "text/plain": new Blob([html.replace(/<[^>]+>/g,'')],{type:"text/plain"}) })
-    ]);
-    alert('Email body copied! Paste into your email client.');
-  }else{
-    const win=window.open('','_blank'); win.document.write(html); win.document.close();
-  }
+/* ===== Export Function ===== */
+function exportHTML(){
+  const content = document.documentElement.outerHTML;
+  const blob = new Blob([content], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'release-report-' + new Date().toISOString().slice(0,10) + '.html';
+  a.click();
+  URL.revokeObjectURL(url);
 }
 </script>
 </body>
