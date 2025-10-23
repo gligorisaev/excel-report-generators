@@ -60,6 +60,12 @@
     .toolbar { display:flex; align-items:center; justify-content:space-between; margin-top:12px; gap:12px; flex-wrap:wrap; }
     .muted { color:var(--muted); font-size:12px; }
     .kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background:var(--panel-2); border:1px solid var(--border); padding:2px 6px; border-radius:6px; color:var(--muted); font-size:12px; }
+
+    /* Collapsible section styling */
+    details.panel > summary { cursor:pointer; list-style:none; }
+    details.panel > summary::-webkit-details-marker { display:none; }
+    details.panel .section-body { margin-top:12px; }
+    details.panel[open] .section-body { /* optional: keep default */ }
   </style>
 </head>
 <body>
@@ -98,29 +104,30 @@
       </div>
     </div>
 
-    <div id="content" class="panel">
-      <div class="empty">Load releases_gligor.xls to populate this section.</div>
-    </div>
+    <details id="content" class="panel">
+      <summary><div class="empty">Load releases_gligor.xls to populate this section.</div></summary>
+      <!-- body will be rendered dynamically -->
+    </details>
 
-    <div id="stories" class="panel" style="margin-top:12px;">
-      <div class="empty">Load stories_gligor.xls to populate the User Stories section.</div>
-    </div>
+    <details id="stories" class="panel" style="margin-top:12px;">
+      <summary><div class="empty">Load stories_gligor.xls to populate the User Stories section.</div></summary>
+    </details>
 
-    <div id="testcases" class="panel" style="margin-top:12px;">
-      <div class="empty">Load test_cases_gligor.xls to populate the Test Cases section.</div>
-    </div>
+    <details id="testcases" class="panel" style="margin-top:12px;">
+      <summary><div class="empty">Load test_cases_gligor.xls to populate the Test Cases section.</div></summary>
+    </details>
 
-    <div id="testexec" class="panel" style="margin-top:12px;">
-      <div class="empty">Load te_gligor.xls to populate the Test Executions section.</div>
-    </div>
+    <details id="testexec" class="panel" style="margin-top:12px;">
+      <summary><div class="empty">Load te_gligor.xls to populate the Test Executions section.</div></summary>
+    </details>
 
-    <div id="defects" class="panel" style="margin-top:12px;">
-      <div class="empty">Load defects_gligor.xls to populate the Defects section.</div>
-    </div>
+    <details id="defects" class="panel" style="margin-top:12px;">
+      <summary><div class="empty">Load defects_gligor.xls to populate the Defects section.</div></summary>
+    </details>
 
-    <div id="proddef" class="panel" style="margin-top:12px;">
-      <div class="empty">Load proddef_gligor.xls to populate the Production Defects section.</div>
-    </div>
+    <details id="proddef" class="panel" style="margin-top:12px;">
+      <summary><div class="empty">Load proddef_gligor.xls to populate the Production Defects section.</div></summary>
+    </details>
   </div>
 
   <script>
@@ -419,7 +426,7 @@
     function renderTopSection(model) {
       const content = $('#content');
       if (!model) {
-        content.innerHTML = '<div class="empty">No release rows found in file.</div>';
+        content.innerHTML = '<summary><div class="empty">No release rows found in file.</div></summary>';
         return;
       }
       releaseRow = model;
@@ -430,7 +437,7 @@
         model.recordType ? `<span class="chip">${esc(model.recordType)}</span>` : '',
       ].filter(Boolean).join('');
 
-      content.innerHTML = `
+      const header = `
         <div class="header">
           <div class="h-left">
             <h1 class="release-name">${esc(model.releaseName || model.releaseNumber || 'Release')}</h1>
@@ -442,7 +449,9 @@
           </div>
           <div class="chips">${chips}</div>
         </div>
+      `;
 
+      const body = `
         <div class="grid">
           <div class="field">
             <div class="label">Planned Start</div>
@@ -490,6 +499,8 @@
         </details>` : '' }
       `;
 
+      content.innerHTML = `<summary>${header}</summary><div class="section-body">${body}</div>`;
+
       if (storiesRows.length) renderStoriesSection(storiesRows);
       if (testCaseRows.length) renderTestCasesSection(testCaseRows);
       if (testExecRows.length) renderTestExecSection(testExecRows);
@@ -500,7 +511,7 @@
     function renderStoriesSection(rows) {
       const container = $('#stories');
       if (!rows || !rows.length) {
-        container.innerHTML = '<div class="empty">No user stories found. Load stories_gligor.xls.</div>';
+        container.innerHTML = '<summary><div class="empty">No user stories found. Load stories_gligor.xls.</div></summary>';
         return;
       }
 
@@ -519,7 +530,7 @@
       const headerInfo = `
         <div class="header">
           <div class="h-left">
-            <h1 class="release-name">User Stories ${relName ? `— ${esc(releaseRow.releaseName)}` : ''}</h1>
+            <h1 class="release-name">User Stories ${releaseRow?.releaseName ? `— ${esc(releaseRow.releaseName)}` : ''}</h1>
             <div class="sub">
               <span>Total: ${total}</span>
               <span>Test Cases: ${sumTC}</span>
@@ -561,13 +572,15 @@
       }</tbody>`;
 
       container.innerHTML = `
-        ${headerInfo}
-        <div class="toolbar">
-          <div class="muted">Drop a stories .xls (HTML table export) here or use “Load User Stories”.</div>
-          ${relName ? `<div class="kbd">Filtered by release: ${esc(releaseRow.releaseName)}</div>` : ''}
-        </div>
-        <div class="table-wrap">
-          <table>${thead}${tbody}</table>
+        <summary>${headerInfo}</summary>
+        <div class="section-body">
+          <div class="toolbar">
+            <div class="muted">Drop a stories .xls (HTML table export) here or use “Load User Stories”.</div>
+            ${releaseRow?.releaseName ? `<div class="kbd">Filtered by release: ${esc(releaseRow.releaseName)}</div>` : ''}
+          </div>
+          <div class="table-wrap">
+            <table>${thead}${tbody}</table>
+          </div>
         </div>
       `;
     }
@@ -575,7 +588,7 @@
     function renderTestCasesSection(rows) {
       const container = $('#testcases');
       if (!rows || !rows.length) {
-        container.innerHTML = '<div class="empty">No test cases found. Load test_cases_gligor.xls.</div>';
+        container.innerHTML = '<summary><div class="empty">No test cases found. Load test_cases_gligor.xls.</div></summary>';
         return;
       }
 
@@ -599,7 +612,7 @@
       const headerInfo = `
         <div class="header">
           <div class="h-left">
-            <h1 class="release-name">Test Cases ${relName ? `— ${esc(releaseRow.releaseName)}` : ''}</h1>
+            <h1 class="release-name">Test Cases ${releaseRow?.releaseName ? `— ${esc(releaseRow.releaseName)}` : ''}</h1>
             <div class="sub">
               <span>Total TCs: ${totalTCs}</span>
               <span>Total Exec: ${sumTotalExec}</span>
@@ -647,13 +660,15 @@
       }</tbody>`;
 
       container.innerHTML = `
-        ${headerInfo}
-        <div class="toolbar">
-          <div class="muted">Drop a test cases .xls (HTML table export) here or use “Load Test Cases”.</div>
-          ${relName ? `<div class="kbd">Filtered by release: ${esc(releaseRow.releaseName)}</div>` : ''}
-        </div>
-        <div class="table-wrap">
-          <table>${thead}${tbody}</table>
+        <summary>${headerInfo}</summary>
+        <div class="section-body">
+          <div class="toolbar">
+            <div class="muted">Drop a test cases .xls (HTML table export) here or use “Load Test Cases”.</div>
+            ${releaseRow?.releaseName ? `<div class="kbd">Filtered by release: ${esc(releaseRow.releaseName)}</div>` : ''}
+          </div>
+          <div class="table-wrap">
+            <table>${thead}${tbody}</table>
+          </div>
         </div>
       `;
     }
@@ -661,7 +676,7 @@
     function renderTestExecSection(rows) {
       const container = $('#testexec');
       if (!rows || !rows.length) {
-        container.innerHTML = '<div class="empty">No test executions found. Load te_gligor.xls.</div>';
+        container.innerHTML = '<summary><div class="empty">No test executions found. Load te_gligor.xls.</div></summary>';
         return;
       }
 
@@ -679,7 +694,7 @@
       const headerInfo = `
         <div class="header">
           <div class="h-left">
-            <h1 class="release-name">Test Executions ${relName ? `— ${esc(releaseRow.releaseName)}` : ''}</h1>
+            <h1 class="release-name">Test Executions ${releaseRow?.releaseName ? `— ${esc(releaseRow.releaseName)}` : ''}</h1>
             <div class="sub">
               <span>Total Execs: ${total}</span>
               <span>Unique TCs: ${uniqueTC}</span>
@@ -721,13 +736,15 @@
       }</tbody>`;
 
       container.innerHTML = `
-        ${headerInfo}
-        <div class="toolbar">
-          <div class="muted">Drop a test executions .xls (HTML table export) here or use “Load Test Executions”.</div>
-          ${relName ? `<div class="kbd">Filtered by release: ${esc(releaseRow.releaseName)}</div>` : ''}
-        </div>
-        <div class="table-wrap">
-          <table>${thead}${tbody}</table>
+        <summary>${headerInfo}</summary>
+        <div class="section-body">
+          <div class="toolbar">
+            <div class="muted">Drop a test executions .xls (HTML table export) here or use “Load Test Executions”.</div>
+            ${releaseRow?.releaseName ? `<div class="kbd">Filtered by release: ${esc(releaseRow.releaseName)}</div>` : ''}
+          </div>
+          <div class="table-wrap">
+            <table>${thead}${tbody}</table>
+          </div>
         </div>
       `;
     }
@@ -735,7 +752,7 @@
     function renderDefectsSection(rows) {
       const container = $('#defects');
       if (!rows || !rows.length) {
-        container.innerHTML = '<div class="empty">No defects found. Load defects_gligor.xls.</div>';
+        container.innerHTML = '<summary><div class="empty">No defects found. Load defects_gligor.xls.</div></summary>';
         return;
       }
 
@@ -755,7 +772,7 @@
       const headerInfo = `
         <div class="header">
           <div class="h-left">
-            <h1 class="release-name">Defects ${relName ? `— ${esc(releaseRow.releaseName)}` : ''}</h1>
+            <h1 class="release-name">Defects ${releaseRow?.releaseName ? `— ${esc(releaseRow.releaseName)}` : ''}</h1>
             <div class="sub">
               <span>Total: ${total}</span>
               <span>Open: ${openCount}</span>
@@ -807,13 +824,15 @@
       </tbody>`;
 
       container.innerHTML = `
-        ${headerInfo}
-        <div class="toolbar">
-          <div class="muted">Drop a defects .xls (HTML table export) here or use “Load Defects”.</div>
-          ${relName ? `<div class="kbd">Filtered by release: ${esc(releaseRow.releaseName)}</div>` : ''}
-        </div>
-        <div class="table-wrap">
-          <table>${thead}${tbody}</table>
+        <summary>${headerInfo}</summary>
+        <div class="section-body">
+          <div class="toolbar">
+            <div class="muted">Drop a defects .xls (HTML table export) here or use “Load Defects”.</div>
+            ${releaseRow?.releaseName ? `<div class="kbd">Filtered by release: ${esc(releaseRow.releaseName)}</div>` : ''}
+          </div>
+          <div class="table-wrap">
+            <table>${thead}${tbody}</table>
+          </div>
         </div>
       `;
     }
@@ -821,7 +840,7 @@
     function renderProdDefSection(rows) {
       const container = $('#proddef');
       if (!rows || !rows.length) {
-        container.innerHTML = '<div class="empty">No production defects found. Load proddef_gligor.xls.</div>';
+        container.innerHTML = '<summary><div class="empty">No production defects found. Load proddef_gligor.xls.</div></summary>';
         return;
       }
 
@@ -847,7 +866,7 @@
       const headerInfo = `
         <div class="header">
           <div class="h-left">
-            <h1 class="release-name">Production Defects ${relName ? `— ${esc(releaseRow.releaseName)}` : ''}</h1>
+            <h1 class="release-name">Production Defects ${releaseRow?.releaseName ? `— ${esc(releaseRow.releaseName)}` : ''}</h1>
             <div class="sub">
               <span>Total: ${total}</span>
               <span>Open: ${openCount}</span>
@@ -882,8 +901,8 @@
         { key: 'prodDefectName', label: 'Production Defect' },
         { key: 'type', label: 'Type' },
         { key: 'status', label: 'Status', render: v => `<span class="chip ${statusClass(v)}">${esc(v)}</span>` },
-        { key: 'impact', label: 'Impact', render: v => levelChip(v, 'impact') },
-        { key: 'urgency', label: 'Urgency', render: v => levelChip(v, 'urgency') },
+        { key: 'impact', label: 'Urgency', render: v => levelChip(v, 'impact') },
+        { key: 'urgency', label: 'Impact', render: v => levelChip(v, 'urgency') },
         { key: 'testCase', label: 'Test Case' },
         { key: 'ownerName', label: 'Owner' },
         { key: 'createdBy', label: 'Created By' },
@@ -905,20 +924,22 @@
       </tbody>`;
 
       container.innerHTML = `
-        ${headerInfo}
-        <div class="toolbar">
-          <div class="muted">Drop a production defects .xls (HTML table export) here or use “Load Production Defects”.</div>
-          ${relName ? `<div class="kbd">Filtered by release: ${esc(releaseRow.releaseName)}</div>` : ''}
-        </div>
-        <div class="table-wrap">
-          <table>${thead}${tbody}</table>
+        <summary>${headerInfo}</summary>
+        <div class="section-body">
+          <div class="toolbar">
+            <div class="muted">Drop a production defects .xls (HTML table export) here or use “Load Production Defects”.</div>
+            ${releaseRow?.releaseName ? `<div class="kbd">Filtered by release: ${esc(releaseRow.releaseName)}</div>` : ''}
+          </div>
+          <div class="table-wrap">
+            <table>${thead}${tbody}</table>
+          </div>
         </div>
       `;
     }
 
     function setPanelError(panelId, msg) {
       const el = $(panelId);
-      el.innerHTML = `<div class="empty">${esc(msg)}</div>`;
+      el.innerHTML = `<summary><div class="empty">${esc(msg)}</div></summary>`;
     }
 
     async function readTextOrError(file) {
