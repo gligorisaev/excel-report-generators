@@ -91,6 +91,10 @@
           Load Production Defects
           <input id="prodDefFileInput" type="file" accept=".xls,.htm,.html,.xml,.csv" />
         </label>
+        <label class="btn">
+          Load All
+          <input id="allFilesInput" type="file" multiple accept=".xls,.htm,.html,.xml,.csv" />
+        </label>
       </div>
     </div>
 
@@ -293,6 +297,124 @@
     let testExecRows = [];
     let defectsRows = [];
     let prodDefRows = [];
+
+    // Auto-detect helpers for multi-file uploads
+    function extractNormalizedHeadersFromHtml(html) {
+      try {
+        const sandbox = document.implementation.createHTMLDocument('');
+        sandbox.documentElement.innerHTML = html;
+        const table = sandbox.querySelector('table');
+        if (!table) return [];
+        const firstRow = table.querySelector('tr');
+        if (!firstRow) return [];
+        const headerCells = firstRow.querySelectorAll('th,td');
+        return Array.from(headerCells).map(th => normalizeHeader(th.textContent));
+      } catch {
+        return [];
+      }
+    }
+
+    function scoreHeaders(headers, headerMap) {
+      if (!headers.length) return 0;
+      const mapKeys = Object.keys(headerMap);
+      const set = new Set(headers);
+      let score = 0;
+      for (const k of mapKeys) if (set.has(k)) score++;
+      return score;
+    }
+
+    function detectFileTypeByHeaders(headers) {
+      const scores = [
+        ['release', scoreHeaders(headers, HEADER_MAP_RELEASE)],
+        ['stories', scoreHeaders(headers, HEADER_MAP_STORIES)],
+        ['testcases', scoreHeaders(headers, HEADER_MAP_TESTCASES)],
+        ['testexec', scoreHeaders(headers, HEADER_MAP_TESTEXEC)],
+        ['defects', scoreHeaders(headers, HEADER_MAP_DEFECTS)],
+        ['proddef', scoreHeaders(headers, HEADER_MAP_PRODDEF)],
+      ];
+      let best = ['unknown', 0];
+      for (const s of scores) if (s[1] > best[1]) best = s;
+      return best[1] >= 2 ? best[0] : 'unknown';
+    }
+
+    async function handleMultipleFiles(fileList) {
+      if (!fileList || !fileList.length) return;
+
+      let releaseCandidate = null;
+      let storiesAgg = [];
+      let testCasesAgg = [];
+      let testExecAgg = [];
+      let defectsAgg = [];
+      let prodDefAgg = [];
+      const unrecognized = [];
+
+      for (const file of Array.from(fileList)) {
+        const text = await readTextOrError(file);
+        if (!text) { unrecognized.push(file.name); continue; }
+
+        const headers = extractNormalizedHeadersFromHtml(text);
+        const type = detectFileTypeByHeaders(headers);
+
+        try {
+          switch (type) {
+            case 'release': {
+              const rows = parseHtmlTableToObjects(text);
+              if (rows && rows.length && !releaseCandidate) releaseCandidate = rows[0];
+              break;
+            }
+            case 'stories': {
+              const rows = parseHtmlTableToObjectsWithMap(text, HEADER_MAP_STORIES);
+              storiesAgg = storiesAgg.concat(rows);
+              break;
+            }
+            case 'testcases': {
+              const rows = parseHtmlTableToObjectsWithMap(text, HEADER_MAP_TESTCASES);
+              testCasesAgg = testCasesAgg.concat(rows);
+              break;
+            }
+            case 'testexec': {
+              const rows = parseHtmlTableToObjectsWithMap(text, HEADER_MAP_TESTEXEC);
+              testExecAgg = testExecAgg.concat(rows);
+              break;
+            }
+            case 'defects': {
+              const rows = parseHtmlTableToObjectsWithMap(text, HEADER_MAP_DEFECTS);
+              defectsAgg = defectsAgg.concat(rows);
+              break;
+            }
+            case 'proddef': {
+              const rows = parseHtmlTableToObjectsWithMap(text, HEADER_MAP_PRODDEF);
+              prodDefAgg = prodDefAgg.concat(rows);
+              break;
+            }
+            default:
+              unrecognized.push(file.name);
+          }
+        } catch {
+          unrecognized.push(file.name);
+        }
+      }
+
+      if (storiesAgg.length) storiesRows = storiesAgg;
+      if (testCasesAgg.length) testCaseRows = testCasesAgg;
+      if (testExecAgg.length) testExecRows = testExecAgg;
+      if (defectsAgg.length) defectsRows = defectsAgg;
+      if (prodDefAgg.length) prodDefRows = prodDefAgg;
+
+      if (releaseCandidate) {
+        renderTopSection(releaseCandidate);
+      } else {
+        if (storiesRows.length) renderStoriesSection(storiesRows);
+        if (testCaseRows.length) renderTestCasesSection(testCaseRows);
+        if (testExecRows.length) renderTestExecSection(testExecRows);
+        if (defectsRows.length) renderDefectsSection(defectsRows);
+        if (prodDefRows.length) renderProdDefSection(prodDefRows);
+      }
+
+      if (unrecognized.length) {
+        console.info('Unrecognized or unsupported files:', unrecognized);
+      }
+    }
 
     function renderTopSection(model) {
       const content = $('#content');
@@ -853,6 +975,7 @@
       renderProdDefSection(prodDefRows);
     }
 
+    // Single-file input handlers
     $('#releaseFileInput').addEventListener('change', (e) => {
       const file = e.target.files?.[0];
       handleReleaseFile(file);
@@ -878,6 +1001,14 @@
       handleProdDefFile(file);
     });
 
+    // Multi-file input handler
+    $('#allFilesInput').addEventListener('change', (e) => {
+      const files = e.target.files;
+      handleMultipleFiles(files);
+      e.target.value = ''; // allow re-selecting same files
+    });
+
+    // Per-panel drag & drop
     const releasePanel = $('#content');
     releasePanel.addEventListener('dragover', e => { e.preventDefault(); releasePanel.style.outline = '2px dashed var(--accent)'; });
     releasePanel.addEventListener('dragleave', e => { releasePanel.style.outline = ''; });
@@ -936,6 +1067,17 @@
       prodDefPanel.style.outline = '';
       const file = e.dataTransfer.files?.[0];
       handleProdDefFile(file);
+    });
+
+    // Global multi-file drag & drop (anywhere on page)
+    document.addEventListener('dragover', (e) => {
+      if (e.dataTransfer?.types?.includes('Files')) e.preventDefault();
+    });
+    document.addEventListener('drop', (e) => {
+      if (e.dataTransfer?.files?.length) {
+        e.preventDefault();
+        handleMultipleFiles(e.dataTransfer.files);
+      }
     });
   </script>
 </body>
