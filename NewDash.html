@@ -66,6 +66,24 @@
     details.panel > summary::-webkit-details-marker { display:none; }
     details.panel .section-body { margin-top:12px; }
     details.panel[open] .section-body { /* optional: keep default */ }
+
+    /* Donut charts */
+    .charts-grid { display:grid; grid-template-columns: repeat(4, minmax(220px,1fr)); gap:12px; margin-top:12px; }
+    @media (max-width: 1100px) { .charts-grid { grid-template-columns: repeat(3, minmax(220px,1fr)); } }
+    @media (max-width: 800px)  { .charts-grid { grid-template-columns: repeat(2, minmax(220px,1fr)); } }
+    @media (max-width: 520px)  { .charts-grid { grid-template-columns: 1fr; } }
+    .chart-card { background:var(--panel-2); border:1px solid var(--border); border-radius:10px; padding:12px; display:flex; flex-direction:column; align-items:center; }
+    .chart-title { width:100%; font-size:13px; color:var(--muted); margin-bottom:8px; text-transform:uppercase; letter-spacing:.4px; }
+    .donut-wrap { position:relative; width:200px; height:200px; }
+    .donut-canvas { width:100%; height:100%; display:block; }
+    .donut-center { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; flex-direction:column; pointer-events:none; }
+    .donut-center .big { font-weight:700; font-size:20px; }
+    .donut-center .small { font-size:11px; color:var(--muted); }
+    .legend { margin-top:8px; width:100%; }
+    .legend-item { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:12px; padding:4px 0; }
+    .legend-left { display:flex; align-items:center; gap:8px; }
+    .dot { width:10px; height:10px; border-radius:50%; display:inline-block; border:1px solid var(--border); }
+    .legend-right { color:var(--muted); }
   </style>
 </head>
 <body>
@@ -107,6 +125,17 @@
     <!-- Reverted: release panel is not collapsible -->
     <div id="content" class="panel">
       <div class="empty">Load releases_gligor.xls to populate this section.</div>
+    </div>
+
+    <!-- New: Quality Dashboard right after Release Information -->
+    <div id="charts" class="panel" style="margin-top:12px;">
+      <div class="header">
+        <div class="h-left">
+          <h1 class="release-name">Quality Dashboard</h1>
+          <div class="sub"><span>Load datasets to populate charts.</span></div>
+        </div>
+      </div>
+      <div class="empty" id="chartsEmpty">No data yet. Load Stories, Test Cases, Test Executions, and Defects.</div>
     </div>
 
     <details id="stories" class="panel" style="margin-top:12px;">
@@ -298,131 +327,252 @@
     function esc(s) { return String(s ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
     const pct = (a, b) => b > 0 ? Math.round((a / b) * 100) : 0;
 
-    let releaseRow = null;
-    let storiesRows = [];
-    let testCaseRows = [];
-    let testExecRows = [];
-    let defectsRows = [];
-    let prodDefRows = [];
+    // Charts: colors and helpers
+    const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    const COLORS = {
+      ok: cssVar('--ok') || '#16a34a',
+      bad: cssVar('--bad') || '#ef4444',
+      warn: cssVar('--warn') || '#f59e0b',
+      accent: cssVar('--accent') || '#3b82f6',
+      chip: cssVar('--chip') || '#232733',
+      border: cssVar('--border') || '#2a2f3a',
+      text: cssVar('--text') || '#e6e9ef',
+      muted: cssVar('--muted') || '#b4b9c3',
+    };
+    const norm = s => String(s || '').toLowerCase();
+    const pctOf = (part, total) => total > 0 ? Math.round((part / total) * 100) : 0;
 
-    // Auto-detect helpers for multi-file uploads
-    function extractNormalizedHeadersFromHtml(html) {
-      try {
-        const sandbox = document.implementation.createHTMLDocument('');
-        sandbox.documentElement.innerHTML = html;
-        const table = sandbox.querySelector('table');
-        if (!table) return [];
-        const firstRow = table.querySelector('tr');
-        if (!firstRow) return [];
-        const headerCells = firstRow.querySelectorAll('th,td');
-        return Array.from(headerCells).map(th => normalizeHeader(th.textContent));
-      } catch {
-        return [];
-      }
-    }
+    function drawDonut(canvas, segments, opts = {}) {
+      const dpr = window.devicePixelRatio || 1;
+      const w = canvas.clientWidth || 200, h = canvas.clientHeight || 200;
+      canvas.width = Math.round(w * dpr);
+      canvas.height = Math.round(h * dpr);
+      const ctx = canvas.getContext('2d');
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    function scoreHeaders(headers, headerMap) {
-      if (!headers.length) return 0;
-      const mapKeys = Object.keys(headerMap);
-      const set = new Set(headers);
-      let score = 0;
-      for (const k of mapKeys) if (set.has(k)) score++;
-      return score;
-    }
+      const cx = w / 2, cy = h / 2;
+      const radius = Math.min(w, h) / 2 - 4;
+      const innerR = radius * (opts.innerRatio ?? 0.62);
+      const ringWidth = Math.max(8, radius - innerR);
 
-    function detectFileTypeByHeaders(headers) {
-      const scores = [
-        ['release', scoreHeaders(headers, HEADER_MAP_RELEASE)],
-        ['stories', scoreHeaders(headers, HEADER_MAP_STORIES)],
-        ['testcases', scoreHeaders(headers, HEADER_MAP_TESTCASES)],
-        ['testexec', scoreHeaders(headers, HEADER_MAP_TESTEXEC)],
-        ['defects', scoreHeaders(headers, HEADER_MAP_DEFECTS)],
-        ['proddef', scoreHeaders(headers, HEADER_MAP_PRODDEF)],
-      ];
-      let best = ['unknown', 0];
-      for (const s of scores) if (s[1] > best[1]) best = s;
-      return best[1] >= 2 ? best[0] : 'unknown';
-    }
+      const total = segments.reduce((a, s) => a + (s.value || 0), 0);
+      let start = -Math.PI / 2;
 
-    async function handleMultipleFiles(fileList) {
-      if (!fileList || !fileList.length) return;
-
-      let releaseCandidate = null;
-      let storiesAgg = [];
-      let testCasesAgg = [];
-      let testExecAgg = [];
-      let defectsAgg = [];
-      let prodDefAgg = [];
-      const unrecognized = [];
-
-      for (const file of Array.from(fileList)) {
-        const text = await readTextOrError(file);
-        if (!text) { unrecognized.push(file.name); continue; }
-
-        const headers = extractNormalizedHeadersFromHtml(text);
-        const type = detectFileTypeByHeaders(headers);
-
-        try {
-          switch (type) {
-            case 'release': {
-              const rows = parseHtmlTableToObjects(text);
-              if (rows && rows.length && !releaseCandidate) releaseCandidate = rows[0];
-              break;
-            }
-            case 'stories': {
-              const rows = parseHtmlTableToObjectsWithMap(text, HEADER_MAP_STORIES);
-              storiesAgg = storiesAgg.concat(rows);
-              break;
-            }
-            case 'testcases': {
-              const rows = parseHtmlTableToObjectsWithMap(text, HEADER_MAP_TESTCASES);
-              testCasesAgg = testCasesAgg.concat(rows);
-              break;
-            }
-            case 'testexec': {
-              const rows = parseHtmlTableToObjectsWithMap(text, HEADER_MAP_TESTEXEC);
-              testExecAgg = testExecAgg.concat(rows);
-              break;
-            }
-            case 'defects': {
-              const rows = parseHtmlTableToObjectsWithMap(text, HEADER_MAP_DEFECTS);
-              defectsAgg = defectsAgg.concat(rows);
-              break;
-            }
-            case 'proddef': {
-              const rows = parseHtmlTableToObjectsWithMap(text, HEADER_MAP_PRODDEF);
-              prodDefAgg = prodDefAgg.concat(rows);
-              break;
-            }
-            default:
-              unrecognized.push(file.name);
-          }
-        } catch {
-          unrecognized.push(file.name);
+      if (total <= 0) {
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.strokeStyle = COLORS.border;
+        ctx.lineWidth = ringWidth;
+        ctx.stroke();
+      } else {
+        for (const seg of segments) {
+          const v = Math.max(0, seg.value || 0);
+          if (!v) continue;
+          const angle = (v / total) * Math.PI * 2;
+          ctx.beginPath();
+          ctx.arc(cx, cy, radius, start, start + angle);
+          ctx.strokeStyle = seg.color || COLORS.accent;
+          ctx.lineWidth = ringWidth;
+          ctx.lineCap = 'butt';
+          ctx.stroke();
+          start += angle;
         }
       }
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.beginPath();
+      ctx.arc(cx, cy, innerR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalCompositeOperation = 'source-over';
+    }
 
-      if (storiesAgg.length) storiesRows = storiesAgg;
-      if (testCasesAgg.length) testCaseRows = testCasesAgg;
-      if (testExecAgg.length) testExecRows = testExecAgg;
-      if (defectsAgg.length) defectsRows = defectsAgg;
-      if (prodDefAgg.length) prodDefRows = prodDefAgg;
+    function makeChartCard(title, segments, centerBig, centerSmall) {
+      const total = segments.reduce((a, s) => a + (s.value || 0), 0);
+      const hasData = total > 0;
+      const id = `c_${Math.random().toString(36).slice(2, 9)}`;
+      const legendHtml = segments.map(s => {
+        const p = pctOf(s.value || 0, total);
+        return `<div class="legend-item">
+          <div class="legend-left"><span class="dot" style="background:${s.color}"></span><span>${esc(s.label)}</span></div>
+          <div class="legend-right">${s.value ?? 0}${hasData ? ` • ${p}%` : ''}</div>
+        </div>`;
+      }).join('');
+      return `
+        <div class="chart-card">
+          <div class="chart-title">${esc(title)}</div>
+          <div class="donut-wrap">
+            <canvas id="${id}" class="donut-canvas" data-segments='${esc(JSON.stringify(segments))}'></canvas>
+            <div class="donut-center">
+              <div class="big">${esc(centerBig || (hasData ? String(total) : '0'))}</div>
+              <div class="small">${esc(centerSmall || (hasData ? 'Total' : 'No data'))}</div>
+            </div>
+          </div>
+          <div class="legend">${legendHtml}</div>
+        </div>
+      `;
+    }
 
-      if (releaseCandidate) {
-        renderTopSection(releaseCandidate);
-      } else {
-        if (storiesRows.length) renderStoriesSection(storiesRows);
-        if (testCaseRows.length) renderTestCasesSection(testCaseRows);
-        if (testExecRows.length) renderTestExecSection(testExecRows);
-        if (defectsRows.length) renderDefectsSection(defectsRows);
-        if (prodDefRows.length) renderProdDefSection(prodDefRows);
+    function buildChartsData() {
+      const relName = (releaseRow?.releaseName || '').trim().toLowerCase();
+      const filterByRelease = (rows, key='releaseName') =>
+        relName ? (rows || []).filter(r => (r[key] || '').trim().toLowerCase() === relName) : (rows || []);
+
+      const tc = filterByRelease(testCaseRows);
+      const te = filterByRelease(testExecRows);
+      const df = filterByRelease(defectsRows);
+      const pd = filterByRelease(prodDefRows);
+
+      // Test Cases by status
+      const tcStatus = { passed:0, failed:0, inprog:0, notstarted:0, other:0 };
+      for (const r of tc) {
+        const s = norm(r.status);
+        if (s.includes('passed')) tcStatus.passed++;
+        else if (s.includes('failed')) tcStatus.failed++;
+        else if (/(in prog|progress)/.test(s)) tcStatus.inprog++;
+        else if (s.includes('not started')) tcStatus.notstarted++;
+        else tcStatus.other++;
+      }
+      const tcPassRate = pctOf(tcStatus.passed, tcStatus.passed + tcStatus.failed);
+
+      // Test Executions by status
+      const teStatus = { passed:0, failed:0, inprog:0, notstarted:0, other:0 };
+      for (const r of te) {
+        const s = norm(r.status);
+        if (s.includes('passed')) teStatus.passed++;
+        else if (s.includes('failed')) teStatus.failed++;
+        else if (/(in prog|progress)/.test(s)) teStatus.inprog++;
+        else if (s.includes('not started')) teStatus.notstarted++;
+        else teStatus.other++;
+      }
+      const tePassRate = pctOf(teStatus.passed, teStatus.passed + teStatus.failed);
+
+      // Defects open vs closed
+      const isClosed = s => /(closed|resolved|done|solved)/i.test(s || '');
+      const dOpen = df.filter(r => !isClosed(r.status)).length;
+      const dClosed = df.length - dOpen;
+
+      // Defects by severity
+      let sevCrit=0, sevHigh=0, sevMed=0, sevLow=0, sevOther=0;
+      for (const r of df) {
+        const s = norm(r.severity);
+        if (/^critical$/.test(s)) sevCrit++;
+        else if (/^high$/.test(s)) sevHigh++;
+        else if (/^medium$/.test(s)) sevMed++;
+        else if (/^low$/.test(s)) sevLow++;
+        else sevOther++;
       }
 
-      if (unrecognized.length) {
-        console.info('Unrecognized or unsupported files:', unrecognized);
+      // Prod defects impact and urgency
+      let impactHigh=0, impactMed=0, impactLow=0, impactOther=0;
+      let urgImmediate=0, urgHigh=0, urgMed=0, urgLow=0, urgOther=0;
+      for (const r of pd) {
+        const i = norm(r.impact);
+        if (/^high$/.test(i)) impactHigh++; else if (/^medium$/.test(i)) impactMed++;
+        else if (/^low$/.test(i)) impactLow++; else impactOther++;
+        const u = norm(r.urgency);
+        if (/^immediate$/.test(u)) urgImmediate++; else if (/^high$/.test(u)) urgHigh++;
+        else if (/^medium$/.test(u)) urgMed++; else if (/^low$/.test(u)) urgLow++; else urgOther++;
+      }
+
+      return {
+        relName,
+        totals: { tc: tc.length, te: te.length, df: df.length, pd: pd.length },
+        tcSegments: [
+          { label:'Passed', value:tcStatus.passed, color:COLORS.ok },
+          { label:'Failed', value:tcStatus.failed, color:COLORS.bad },
+          { label:'In Progress', value:tcStatus.inprog, color:COLORS.warn },
+          { label:'Not Started', value:tcStatus.notstarted, color:COLORS.accent },
+          { label:'Other', value:tcStatus.other, color:COLORS.chip },
+        ],
+        teSegments: [
+          { label:'Passed', value:teStatus.passed, color:COLORS.ok },
+          { label:'Failed', value:teStatus.failed, color:COLORS.bad },
+          { label:'In Progress', value:teStatus.inprog, color:COLORS.warn },
+          { label:'Not Started', value:teStatus.notstarted, color:COLORS.accent },
+          { label:'Other', value:teStatus.other, color:COLORS.chip },
+        ],
+        dfStatusSegments: [
+          { label:'Open', value:dOpen, color:COLORS.warn },
+          { label:'Closed', value:dClosed, color:COLORS.ok },
+        ],
+        dfSevSegments: [
+          { label:'Critical', value:sevCrit, color:'#dc2626' },
+          { label:'High', value:sevHigh, color:COLORS.bad },
+          { label:'Medium', value:sevMed, color:COLORS.warn },
+          { label:'Low', value:sevLow, color:COLORS.ok },
+          { label:'Other', value:sevOther, color:COLORS.chip },
+        ],
+        pdImpactSegments: [
+          { label:'High', value:impactHigh, color:COLORS.bad },
+          { label:'Medium', value:impactMed, color:COLORS.warn },
+          { label:'Low', value:impactLow, color:COLORS.ok },
+          { label:'Other', value:impactOther, color:COLORS.chip },
+        ],
+        pdUrgSegments: [
+          { label:'Immediate', value:urgImmediate, color:'#b91c1c' },
+          { label:'High', value:urgHigh, color:COLORS.bad },
+          { label:'Medium', value:urgMed, color:COLORS.warn },
+          { label:'Low', value:urgLow, color:COLORS.ok },
+          { label:'Other', value:urgOther, color:COLORS.chip },
+        ],
+        tcPassRate: tcPassRate,
+        tePassRate: tePassRate,
+      };
+    }
+
+    function renderChartsDashboard() {
+      const panel = document.getElementById('charts');
+      if (!panel) return;
+
+      const data = buildChartsData();
+      const titleEl = panel.querySelector('.release-name');
+      const subEl = panel.querySelector('.sub');
+      if (titleEl) titleEl.textContent = `Quality Dashboard${data.relName ? ` — ${releaseRow.releaseName}` : ''}`;
+      if (subEl) {
+        subEl.innerHTML = `
+          <span>TCs: ${data.totals.tc}</span>
+          <span>Execs: ${data.totals.te}</span>
+          <span>Defects: ${data.totals.df}</span>
+          ${data.totals.pd ? `<span>Prod Defects: ${data.totals.pd}</span>` : ''}
+        `;
+      }
+
+      const totalAll = data.totals.tc + data.totals.te + data.totals.df + data.totals.pd;
+      const emptyEl = document.getElementById('chartsEmpty');
+      if (totalAll === 0) {
+        if (emptyEl) emptyEl.style.display = '';
+        const gridOld = panel.querySelector('.charts-grid');
+        if (gridOld) gridOld.remove();
+        return;
+      }
+      if (emptyEl) emptyEl.style.display = 'none';
+
+      const cards = [];
+      const sumSeg = segs => segs.reduce((a,s)=>a+(s.value||0),0);
+      if (sumSeg(data.tcSegments)) cards.push(makeChartCard('Test Cases — Status', data.tcSegments, `${data.tcPassRate}%`, 'Pass rate'));
+      if (sumSeg(data.teSegments)) cards.push(makeChartCard('Test Executions — Status', data.teSegments, `${data.tePassRate}%`, 'Pass rate'));
+      if (sumSeg(data.dfStatusSegments)) cards.push(makeChartCard('Defects — Status', data.dfStatusSegments, String(data.dfStatusSegments[0].value || 0), 'Open'));
+      if (sumSeg(data.dfSevSegments)) cards.push(makeChartCard('Defects — Severity', data.dfSevSegments, String((data.dfSevSegments[0].value||0)+(data.dfSevSegments[1].value||0)), 'High/Critical'));
+      if (sumSeg(data.pdImpactSegments)) cards.push(makeChartCard('Prod Defects — Impact', data.pdImpactSegments, String(sumSeg(data.pdImpactSegments)), 'Total'));
+      if (sumSeg(data.pdUrgSegments)) cards.push(makeChartCard('Prod Defects — Urgency', data.pdUrgSegments, String(sumSeg(data.pdUrgSegments)), 'Total'));
+
+      let grid = panel.querySelector('.charts-grid');
+      if (!grid) {
+        grid = document.createElement('div');
+        grid.className = 'charts-grid';
+        panel.appendChild(grid);
+      }
+      grid.innerHTML = cards.join('');
+
+      // draw all donuts
+      for (const canvas of grid.querySelectorAll('canvas[data-segments]')) {
+        try {
+          const segs = JSON.parse(canvas.getAttribute('data-segments') || '[]');
+          drawDonut(canvas, segs);
+        } catch {}
       }
     }
 
+    // Hook charts refresh into renders
     function renderTopSection(model) {
       const content = $('#content');
       if (!model) {
@@ -502,6 +652,7 @@
       // Render as plain (non-collapsible) content
       content.innerHTML = `${header}${body}`;
 
+      renderChartsDashboard();
       if (storiesRows.length) renderStoriesSection(storiesRows);
       if (testCaseRows.length) renderTestCasesSection(testCaseRows);
       if (testExecRows.length) renderTestExecSection(testExecRows);
@@ -584,6 +735,7 @@
           </div>
         </div>
       `;
+      renderChartsDashboard();
     }
 
     function renderTestCasesSection(rows) {
@@ -672,6 +824,7 @@
           </div>
         </div>
       `;
+      renderChartsDashboard();
     }
 
     function renderTestExecSection(rows) {
@@ -748,6 +901,7 @@
           </div>
         </div>
       `;
+      renderChartsDashboard();
     }
 
     function renderDefectsSection(rows) {
@@ -765,10 +919,12 @@
       const openCount = filtered.filter(r => !isClosed(r.status)).length;
       const closedCount = filtered.filter(r => isClosed(r.status)).length;
 
-      const sevCount = (sev) => filtered.filter(r => new RegExp(`^${sev}$`, 'i').test(r.severity || '')).length;
-      const sevHigh = sevCount('High') + sevCount('Critical');
-      const sevMed = sevCount('Medium');
-      const sevLow = sevCount('Low');
+      const sevCount = (needle) => filtered.filter(r => String(r.severity||'').toLowerCase().includes(needle)).length;
+      const sevPassed = sevCount('passed');
+      const sevFailed = sevCount('failed');
+      const sevOpen = sevCount('open');
+      const sevInProg = sevCount('in prog');
+      const sevNotStarted = sevCount('not started');
 
       const headerInfo = `
         <div class="header">
@@ -783,9 +939,11 @@
           <div class="chips">
             <span class="chip ${openCount ? 'warn' : ''}">Open: ${openCount}</span>
             <span class="chip ${closedCount ? 'ok' : ''}">Closed: ${closedCount}</span>
-            <span class="chip ${sevHigh ? 'bad' : ''}">High/Crit: ${sevHigh}</span>
-            <span class="chip ${sevMed ? 'warn' : ''}">Medium: ${sevMed}</span>
-            <span class="chip ${sevLow ? 'ok' : ''}">Low: ${sevLow}</span>
+            <span class="chip ${sevPassed ? 'ok' : ''}">Passed: ${sevPassed}</span>
+            <span class="chip ${sevFailed ? 'bad' : ''}">Failed: ${sevFailed}</span>
+            <span class="chip ${sevOpen ? 'warn' : ''}">Open: ${sevOpen}</span>
+            <span class="chip ${sevInProg ? 'warn' : ''}">In Prog: ${sevInProg}</span>
+            <span class="chip ${sevNotStarted ? 'warn' : ''}">Not Started: ${sevNotStarted}</span>
           </div>
         </div>
       `;
@@ -836,6 +994,7 @@
           </div>
         </div>
       `;
+      renderChartsDashboard();
     }
 
     function renderProdDefSection(rows) {
@@ -936,6 +1095,7 @@
           </div>
         </div>
       `;
+      renderChartsDashboard();
     }
 
     function setPanelError(panelId, msg) {
@@ -1001,6 +1161,107 @@
       if (!text) { setPanelError('#proddef', 'Unsupported file. Please use an HTML-table .xls export.'); return; }
       prodDefRows = parseHtmlTableToObjectsWithMap(text, HEADER_MAP_PRODDEF);
       renderProdDefSection(prodDefRows);
+    }
+
+    // Helpers for multi-file header detection (used by "Load All")
+    function extractNormalizedHeadersFromHtml(html) {
+      try {
+        const sandbox = document.implementation.createHTMLDocument('');
+        sandbox.documentElement.innerHTML = html;
+        const table = sandbox.querySelector('table');
+        if (!table) return [];
+        const firstRow = table.querySelector('tr');
+        if (!firstRow) return [];
+        const headerCells = firstRow.querySelectorAll('th,td');
+        return Array.from(headerCells).map(th => normalizeHeader(th.textContent));
+      } catch {
+        return [];
+      }
+    }
+
+    function scoreHeaders(headers, headerMap) {
+      if (!headers.length) return 0;
+      const set = new Set(headers);
+      let score = 0;
+      for (const k of Object.keys(headerMap)) if (set.has(k)) score++;
+      return score;
+    }
+
+    function detectFileTypeByHeaders(headers) {
+      const scores = [
+        ['release', scoreHeaders(headers, HEADER_MAP_RELEASE)],
+        ['stories', scoreHeaders(headers, HEADER_MAP_STORIES)],
+        ['testcases', scoreHeaders(headers, HEADER_MAP_TESTCASES)],
+        ['testexec', scoreHeaders(headers, HEADER_MAP_TESTEXEC)],
+        ['defects', scoreHeaders(headers, HEADER_MAP_DEFECTS)],
+        ['proddef', scoreHeaders(headers, HEADER_MAP_PRODDEF)],
+      ];
+      let best = ['unknown', 0];
+      for (const s of scores) if (s[1] > best[1]) best = s;
+      return best[1] >= 2 ? best[0] : 'unknown';
+    }
+
+    async function handleMultipleFiles(fileList) {
+      if (!fileList || !fileList.length) return;
+
+      let releaseCandidate = null;
+      let storiesAgg = [];
+      let testCasesAgg = [];
+      let testExecAgg = [];
+      let defectsAgg = [];
+      let prodDefAgg = [];
+      const unrecognized = [];
+
+      for (const file of Array.from(fileList)) {
+        const text = await readTextOrError(file);
+        if (!text) { unrecognized.push(file.name); continue; }
+
+        const headers = extractNormalizedHeadersFromHtml(text);
+        const type = detectFileTypeByHeaders(headers);
+
+        try {
+          switch (type) {
+            case 'release': {
+              const rows = parseHtmlTableToObjects(text);
+              if (rows && rows.length && !releaseCandidate) releaseCandidate = rows[0];
+              break;
+            }
+            case 'stories':
+              storiesAgg = storiesAgg.concat(parseHtmlTableToObjectsWithMap(text, HEADER_MAP_STORIES)); break;
+            case 'testcases':
+              testCasesAgg = testCasesAgg.concat(parseHtmlTableToObjectsWithMap(text, HEADER_MAP_TESTCASES)); break;
+            case 'testexec':
+              testExecAgg = testExecAgg.concat(parseHtmlTableToObjectsWithMap(text, HEADER_MAP_TESTEXEC)); break;
+            case 'defects':
+              defectsAgg = defectsAgg.concat(parseHtmlTableToObjectsWithMap(text, HEADER_MAP_DEFECTS)); break;
+            case 'proddef':
+              prodDefAgg = prodDefAgg.concat(parseHtmlTableToObjectsWithMap(text, HEADER_MAP_PRODDEF)); break;
+            default:
+              unrecognized.push(file.name);
+          }
+        } catch {
+          unrecognized.push(file.name);
+        }
+      }
+
+      if (storiesAgg.length) storiesRows = storiesAgg;
+      if (testCasesAgg.length) testCaseRows = testCasesAgg;
+      if (testExecAgg.length) testExecRows = testExecAgg;
+      if (defectsAgg.length) defectsRows = defectsAgg;
+      if (prodDefAgg.length) prodDefRows = prodDefAgg;
+
+      if (releaseCandidate) {
+        renderTopSection(releaseCandidate);
+      } else {
+        if (storiesRows.length) renderStoriesSection(storiesRows);
+        if (testCaseRows.length) renderTestCasesSection(testCaseRows);
+        if (testExecRows.length) renderTestExecSection(testExecRows);
+        if (defectsRows.length) renderDefectsSection(defectsRows);
+        if (prodDefRows.length) renderProdDefSection(prodDefRows);
+        renderChartsDashboard();
+      }
+
+      if (unrecognized.length) console.info('Unrecognized or unsupported files:', unrecognized);
     }
 
     // Single-file input handlers
@@ -1107,6 +1368,9 @@
         handleMultipleFiles(e.dataTransfer.files);
       }
     });
+
+    // Optional: re-draw on resize for crisp canvases
+    window.addEventListener('resize', () => renderChartsDashboard());
   </script>
 </body>
 </html>
