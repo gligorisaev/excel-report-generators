@@ -1042,9 +1042,10 @@
       if (sumSeg(data.pdImpactSegments)) {
         cards.push(makeChartCard('Prod Defects — Impact', data.pdImpactSegments, String(sumSeg(data.pdImpactSegments)), 'Total'));
       }
-      if (sumSeg(data.pdUrgSegments)) {
-        cards.push(makeChartCard('Prod Defects — Urgency', data.pdUrgSegments, String(sumSeg(data.pdUrgSegments)), 'Total'));
-      }
+      // Removed: Prod Defects — Urgency chart
+      // if (sumSeg(data.pdUrgSegments)) {
+      //   cards.push(makeChartCard('Prod Defects — Urgency', data.pdUrgSegments, String(sumSeg(data.pdUrgSegments)), 'Total'));
+      // }
 
       let grid = panel.querySelector('.charts-grid');
       if (!grid) {
