@@ -17,6 +17,7 @@
       --bad: #ef4444;
       --chip: #232733;
       --border: #2a2f3a;
+      --donut-size: 110px; /* no longer used by bars */
     }
     html, body { margin:0; padding:0; background:var(--bg); color:var(--text); font:14px/1.5 Segoe UI, Roboto, Arial, sans-serif; }
     .wrap { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
@@ -67,23 +68,28 @@
     details.panel .section-body { margin-top:12px; }
     details.panel[open] .section-body { /* optional: keep default */ }
 
-    /* Donut charts */
-    .charts-grid { display:grid; grid-template-columns: repeat(4, minmax(220px,1fr)); gap:12px; margin-top:12px; }
+    /* Stacked bar charts (replaces donut charts) */
+    .charts-grid { display:grid; grid-template-columns: repeat(4, minmax(200px,1fr)); gap:10px; margin-top:12px; }
     @media (max-width: 1100px) { .charts-grid { grid-template-columns: repeat(3, minmax(220px,1fr)); } }
     @media (max-width: 800px)  { .charts-grid { grid-template-columns: repeat(2, minmax(220px,1fr)); } }
     @media (max-width: 520px)  { .charts-grid { grid-template-columns: 1fr; } }
-    .chart-card { background:var(--panel-2); border:1px solid var(--border); border-radius:10px; padding:12px; display:flex; flex-direction:column; align-items:center; }
-    .chart-title { width:100%; font-size:13px; color:var(--muted); margin-bottom:8px; text-transform:uppercase; letter-spacing:.4px; }
-    .donut-wrap { position:relative; width:200px; height:200px; }
-    .donut-canvas { width:100%; height:100%; display:block; }
-    .donut-center { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; flex-direction:column; pointer-events:none; }
-    .donut-center .big { font-weight:700; font-size:20px; }
-    .donut-center .small { font-size:11px; color:var(--muted); }
-    .legend { margin-top:8px; width:100%; }
-    .legend-item { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:12px; padding:4px 0; }
+    .chart-card { background:var(--panel-2); border:1px solid var(--border); border-radius:10px; padding:10px; display:flex; flex-direction:column; align-items:stretch; }
+    .chart-title { width:100%; font-size:12px; color:var(--muted); margin-bottom:6px; text-transform:uppercase; letter-spacing:.4px; }
+    .bar-wrap { width:100%; height:18px; border:1px solid var(--border); background:var(--panel); border-radius:8px; overflow:hidden; }
+    .bar { display:flex; width:100%; height:100%; }
+    .bar-seg { height:100%; }
+    .bar-metric { margin-top:6px; display:flex; gap:8px; align-items:baseline; }
+    .bar-metric .big { font-weight:700; font-size:18px; color:var(--text); }
+    .bar-metric .small { font-size:11px; color:var(--muted); }
+    .legend { margin-top:6px; width:100%; }
+    .legend-item { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:11px; padding:3px 0; }
     .legend-left { display:flex; align-items:center; gap:8px; }
     .dot { width:10px; height:10px; border-radius:50%; display:inline-block; border:1px solid var(--border); }
     .legend-right { color:var(--muted); }
+
+    /* Remove unused donut CSS
+    .donut-wrap, .donut-canvas, .donut-center { display:none; }
+    */
   </style>
 </head>
 <body>
@@ -342,69 +348,37 @@
     const norm = s => String(s || '').toLowerCase();
     const pctOf = (part, total) => total > 0 ? Math.round((part / total) * 100) : 0;
 
-    function drawDonut(canvas, segments, opts = {}) {
-      const dpr = window.devicePixelRatio || 1;
-      const w = canvas.clientWidth || 200, h = canvas.clientHeight || 200;
-      canvas.width = Math.round(w * dpr);
-      canvas.height = Math.round(h * dpr);
-      const ctx = canvas.getContext('2d');
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-      const cx = w / 2, cy = h / 2;
-      const radius = Math.min(w, h) / 2 - 4;
-      const innerR = radius * (opts.innerRatio ?? 0.62);
-      const ringWidth = Math.max(8, radius - innerR);
-
-      const total = segments.reduce((a, s) => a + (s.value || 0), 0);
-      let start = -Math.PI / 2;
-
-      if (total <= 0) {
-        ctx.beginPath();
-        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-        ctx.strokeStyle = COLORS.border;
-        ctx.lineWidth = ringWidth;
-        ctx.stroke();
-      } else {
-        for (const seg of segments) {
-          const v = Math.max(0, seg.value || 0);
-          if (!v) continue;
-          const angle = (v / total) * Math.PI * 2;
-          ctx.beginPath();
-          ctx.arc(cx, cy, radius, start, start + angle);
-          ctx.strokeStyle = seg.color || COLORS.accent;
-          ctx.lineWidth = ringWidth;
-          ctx.lineCap = 'butt';
-          ctx.stroke();
-          start += angle;
-        }
-      }
-      ctx.globalCompositeOperation = 'destination-out';
-      ctx.beginPath();
-      ctx.arc(cx, cy, innerR, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalCompositeOperation = 'source-over';
-    }
-
     function makeChartCard(title, segments, centerBig, centerSmall) {
       const total = segments.reduce((a, s) => a + (s.value || 0), 0);
       const hasData = total > 0;
-      const id = `c_${Math.random().toString(36).slice(2, 9)}`;
+
       const legendHtml = segments.map(s => {
-        const p = pctOf(s.value || 0, total);
+        const p = total > 0 ? Math.round(((s.value || 0) / total) * 100) : 0;
         return `<div class="legend-item">
           <div class="legend-left"><span class="dot" style="background:${s.color}"></span><span>${esc(s.label)}</span></div>
           <div class="legend-right">${s.value ?? 0}${hasData ? ` • ${p}%` : ''}</div>
         </div>`;
       }).join('');
+
+      const barHtml = (() => {
+        if (!hasData) return '';
+        return `<div class="bar">${
+          segments.map(s => {
+            const p = total > 0 ? ((s.value || 0) / total) * 100 : 0;
+            if (p <= 0) return '';
+            const tip = `${esc(s.label)}: ${s.value ?? 0} (${Math.round(p)}%)`;
+            return `<div class="bar-seg" style="width:${p}%; background:${s.color}" title="${tip}"></div>`;
+          }).join('')
+        }</div>`;
+      })();
+
       return `
         <div class="chart-card">
           <div class="chart-title">${esc(title)}</div>
-          <div class="donut-wrap">
-            <canvas id="${id}" class="donut-canvas" data-segments='${esc(JSON.stringify(segments))}'></canvas>
-            <div class="donut-center">
-              <div class="big">${esc(centerBig || (hasData ? String(total) : '0'))}</div>
-              <div class="small">${esc(centerSmall || (hasData ? 'Total' : 'No data'))}</div>
-            </div>
+          <div class="bar-wrap">${barHtml || '<div class="bar"></div>'}</div>
+          <div class="bar-metric">
+            <span class="big">${esc(centerBig || (hasData ? String(total) : '0'))}</span>
+            <span class="small">${esc(centerSmall || (hasData ? 'Total' : 'No data'))}</span>
           </div>
           <div class="legend">${legendHtml}</div>
         </div>
@@ -421,17 +395,17 @@
       const df = filterByRelease(defectsRows);
       const pd = filterByRelease(prodDefRows);
 
-      // Test Cases by status
-      const tcStatus = { passed:0, failed:0, inprog:0, notstarted:0, other:0 };
-      for (const r of tc) {
-        const s = norm(r.status);
-        if (s.includes('passed')) tcStatus.passed++;
-        else if (s.includes('failed')) tcStatus.failed++;
-        else if (/(in prog|progress)/.test(s)) tcStatus.inprog++;
-        else if (s.includes('not started')) tcStatus.notstarted++;
-        else tcStatus.other++;
-      }
-      const tcPassRate = pctOf(tcStatus.passed, tcStatus.passed + tcStatus.failed);
+      // Remove Test Cases status aggregation (keep only executions)
+      // const tcStatus = { passed:0, failed:0, inprog:0, notstarted:0, other:0 };
+      // for (const r of tc) {
+      //   const s = norm(r.status);
+      //   if (s.includes('passed')) tcStatus.passed++;
+      //   else if (s.includes('failed')) tcStatus.failed++;
+      //   else if (/(in prog|progress)/.test(s)) tcStatus.inprog++;
+      //   else if (s.includes('not started')) tcStatus.notstarted++;
+      //   else tcStatus.other++;
+      // }
+      // const tcPassRate = pctOf(tcStatus.passed, tcStatus.passed + tcStatus.failed);
 
       // Test Executions by status
       const teStatus = { passed:0, failed:0, inprog:0, notstarted:0, other:0 };
@@ -476,13 +450,7 @@
       return {
         relName,
         totals: { tc: tc.length, te: te.length, df: df.length, pd: pd.length },
-        tcSegments: [
-          { label:'Passed', value:tcStatus.passed, color:COLORS.ok },
-          { label:'Failed', value:tcStatus.failed, color:COLORS.bad },
-          { label:'In Progress', value:tcStatus.inprog, color:COLORS.warn },
-          { label:'Not Started', value:tcStatus.notstarted, color:COLORS.accent },
-          { label:'Other', value:tcStatus.other, color:COLORS.chip },
-        ],
+        // tcSegments: [ ... ], // removed
         teSegments: [
           { label:'Passed', value:teStatus.passed, color:COLORS.ok },
           { label:'Failed', value:teStatus.failed, color:COLORS.bad },
@@ -514,7 +482,7 @@
           { label:'Low', value:urgLow, color:COLORS.ok },
           { label:'Other', value:urgOther, color:COLORS.chip },
         ],
-        tcPassRate: tcPassRate,
+        // tcPassRate, // removed
         tePassRate: tePassRate,
       };
     }
@@ -548,12 +516,27 @@
 
       const cards = [];
       const sumSeg = segs => segs.reduce((a,s)=>a+(s.value||0),0);
-      if (sumSeg(data.tcSegments)) cards.push(makeChartCard('Test Cases — Status', data.tcSegments, `${data.tcPassRate}%`, 'Pass rate'));
-      if (sumSeg(data.teSegments)) cards.push(makeChartCard('Test Executions — Status', data.teSegments, `${data.tePassRate}%`, 'Pass rate'));
-      if (sumSeg(data.dfStatusSegments)) cards.push(makeChartCard('Defects — Status', data.dfStatusSegments, String(data.dfStatusSegments[0].value || 0), 'Open'));
-      if (sumSeg(data.dfSevSegments)) cards.push(makeChartCard('Defects — Severity', data.dfSevSegments, String((data.dfSevSegments[0].value||0)+(data.dfSevSegments[1].value||0)), 'High/Critical'));
-      if (sumSeg(data.pdImpactSegments)) cards.push(makeChartCard('Prod Defects — Impact', data.pdImpactSegments, String(sumSeg(data.pdImpactSegments)), 'Total'));
-      if (sumSeg(data.pdUrgSegments)) cards.push(makeChartCard('Prod Defects — Urgency', data.pdUrgSegments, String(sumSeg(data.pdUrgSegments)), 'Total'));
+
+      // Removed: Test Cases — Status card
+      // if (sumSeg(data.tcSegments)) {
+      //   cards.push(makeChartCard('Test Cases — Status', data.tcSegments, `${data.tcPassRate}%`, 'Pass rate'));
+      // }
+
+      if (sumSeg(data.teSegments)) {
+        cards.push(makeChartCard('Test Executions — Status', data.teSegments, `${data.tePassRate}%`, 'Pass rate'));
+      }
+      if (sumSeg(data.dfStatusSegments)) {
+        cards.push(makeChartCard('Defects — Status', data.dfStatusSegments, String(data.dfStatusSegments[0].value || 0), 'Open'));
+      }
+      if (sumSeg(data.dfSevSegments)) {
+        cards.push(makeChartCard('Defects — Severity', data.dfSevSegments, String((data.dfSevSegments[0].value||0)+(data.dfSevSegments[1].value||0)), 'High/Critical'));
+      }
+      if (sumSeg(data.pdImpactSegments)) {
+        cards.push(makeChartCard('Prod Defects — Impact', data.pdImpactSegments, String(sumSeg(data.pdImpactSegments)), 'Total'));
+      }
+      if (sumSeg(data.pdUrgSegments)) {
+        cards.push(makeChartCard('Prod Defects — Urgency', data.pdUrgSegments, String(sumSeg(data.pdUrgSegments)), 'Total'));
+      }
 
       let grid = panel.querySelector('.charts-grid');
       if (!grid) {
@@ -562,14 +545,6 @@
         panel.appendChild(grid);
       }
       grid.innerHTML = cards.join('');
-
-      // draw all donuts
-      for (const canvas of grid.querySelectorAll('canvas[data-segments]')) {
-        try {
-          const segs = JSON.parse(canvas.getAttribute('data-segments') || '[]');
-          drawDonut(canvas, segs);
-        } catch {}
-      }
     }
 
     // Hook charts refresh into renders
@@ -1334,6 +1309,46 @@
     testExecPanel.addEventListener('drop', e => {
       e.preventDefault();
       testExecPanel.style.outline = '';
+      const file = e.dataTransfer.files?.[0];
+      handleTestExecFile(file);
+    });
+
+    const defectsPanel = $('#defects');
+    defectsPanel.addEventListener('dragover', e => { e.preventDefault(); defectsPanel.style.outline = '2px dashed var(--accent)'; });
+    defectsPanel.addEventListener('dragleave', e => { defectsPanel.style.outline = ''; });
+    defectsPanel.addEventListener('drop', e => {
+      e.preventDefault();
+      defectsPanel.style.outline = '';
+      const file = e.dataTransfer.files?.[0];
+      handleDefectsFile(file);
+    });
+
+    const prodDefPanel = $('#proddef');
+    prodDefPanel.addEventListener('dragover', e => { e.preventDefault(); prodDefPanel.style.outline = '2px dashed var(--accent)'; });
+    prodDefPanel.addEventListener('dragleave', e => { prodDefPanel.style.outline = ''; });
+    prodDefPanel.addEventListener('drop', e => {
+      e.preventDefault();
+      prodDefPanel.style.outline = '';
+      const file = e.dataTransfer.files?.[0];
+      handleProdDefFile(file);
+    });
+
+    // Global multi-file drag & drop (anywhere on page)
+    document.addEventListener('dragover', (e) => {
+      if (e.dataTransfer?.types?.includes('Files')) e.preventDefault();
+    });
+    document.addEventListener('drop', (e) => {
+      if (e.dataTransfer?.files?.length) {
+        e.preventDefault();
+        handleMultipleFiles(e.dataTransfer.files);
+      }
+    });
+
+    // Optional: re-draw on resize for crisp canvases
+    window.addEventListener('resize', () => renderChartsDashboard());
+  </script>
+</body>
+</html>
       const file = e.dataTransfer.files?.[0];
       handleTestExecFile(file);
     });
