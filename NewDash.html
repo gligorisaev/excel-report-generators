@@ -143,6 +143,7 @@
           Load All
           <input id="allFilesInput" type="file" multiple accept=".xls,.htm,.html,.xml,.csv" />
         </label>
+        <button id="exportHtmlBtn" class="btn" title="Download a clean standalone HTML snapshot">Export Report HTML</button>
       </div>
     </div>
 
@@ -186,6 +187,14 @@
   <script>
     const $ = (s, r=document) => r.querySelector(s);
     const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
+
+    // new: global state used across renders and export
+    let releaseRow = null;
+    let storiesRows = [];
+    let testCaseRows = [];
+    let testExecRows = [];
+    let defectsRows = [];
+    let prodDefRows = [];
 
     const HEADER_MAP_RELEASE = {
       'release: release name': 'releaseName',
@@ -1434,7 +1443,7 @@
             <span class="chip ${sevInProg ? 'warn' : ''}">In Prog: ${sevInProg}</span>
             <span class="chip ${sevNotStarted ? 'warn' : ''}">Not Started: ${sevNotStarted}</span>
           </div>
-        </div>
+                                                         </div>
       `;
 
       const sevChip = (v) => {
@@ -1786,81 +1795,54 @@
       e.target.value = ''; // allow re-selecting same files
     });
 
-    // Per-panel drag & drop
-    const releasePanel = $('#content');
-    releasePanel.addEventListener('dragover', e => { e.preventDefault(); releasePanel.style.outline = '2px dashed var(--accent)'; });
-    releasePanel.addEventListener('dragleave', e => { releasePanel.style.outline = ''; });
-    releasePanel.addEventListener('drop', e => {
-     
-      e.preventDefault();
-      releasePanel.style.outline = '';
-      const file = e.dataTransfer.files?.[0];
-      handleReleaseFile(file);
-    });
+    // new: export current report as a clean standalone HTML file
+    function exportReportHtml() {
+      // Clone head and strip scripts
+      const headClone = document.head.cloneNode(true);
+      headClone.querySelectorAll('script').forEach(s => s.remove());
 
-    const storiesPanel = $('#stories');
-    storiesPanel.addEventListener('dragover', e => { e.preventDefault(); storiesPanel.style.outline = '2px dashed var(--accent)'; });
-    storiesPanel.addEventListener('dragleave', e => { storiesPanel.style.outline = ''; });
-    storiesPanel.addEventListener('drop', e => {
-      e.preventDefault();
-      storiesPanel.style.outline = '';
-      const file = e.dataTransfer.files?.[0];
-      handleStoriesFile(file);
-    });
+      // Clone body, remove load controls and all scripts
+      const bodyClone = document.body.cloneNode(true);
+      bodyClone.querySelectorAll('.topbar .controls').forEach(el => el.remove());
+      bodyClone.querySelectorAll('script').forEach(s => s.remove());
 
-    const testCasesPanel = $('#testcases');
-    testCasesPanel.addEventListener('dragover', e => { e.preventDefault(); testCasesPanel.style.outline = '2px dashed var(--accent)'; });
-    testCasesPanel.addEventListener('dragleave', e => { testCasesPanel.style.outline = ''; });
-    testCasesPanel.addEventListener('drop', e => {
-      e.preventDefault();
-      testCasesPanel.style.outline = '';
-      const file = e.dataTransfer.files?.[0];
-      handleTestCasesFile(file);
-    });
+      // Build final HTML string
+      const htmlStr =
+        '<!doctype html>\n' +
+        '<html lang="en">\n' +
+        '<head>' + headClone.innerHTML + '</head>\n' +
+        '<body>' + bodyClone.innerHTML + '</body>\n' +
+        '</html>';
 
-    const testExecPanel = $('#testexec');
-    testExecPanel.addEventListener('dragover', e => { e.preventDefault(); testExecPanel.style.outline = '2px dashed var(--accent)'; });
-    testExecPanel.addEventListener('dragleave', e => { testExecPanel.style.outline = ''; });
-    testExecPanel.addEventListener('drop', e => {
-      e.preventDefault();
-      testExecPanel.style.outline = '';
-      const file = e.dataTransfer.files?.[0];
-      handleTestExecFile(file);
-    });
+      // Name from release if available, plus timestamp
+      const name = (releaseRow?.releaseName || 'ReleaseReport').replace(/[\\\/:*?"<>|]/g, '_');
+      const now = new Date();
+      const pad = n => String(n).padStart(2, '0');
+      const timestamp = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+      const filename = `${name}_${timestamp}.html`;
 
-    const defectsPanel = $('#defects');
-    defectsPanel.addEventListener('dragover', e => { e.preventDefault(); defectsPanel.style.outline = '2px dashed var(--accent)'; });
-    defectsPanel.addEventListener('dragleave', e => { defectsPanel.style.outline = ''; });
-    defectsPanel.addEventListener('drop', e => {
-      e.preventDefault();
-      defectsPanel.style.outline = '';
-      const file = e.dataTransfer.files?.[0];
-      handleDefectsFile(file);
-    });
+      const blob = new Blob([htmlStr], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 0);
+    }
 
-    const prodDefPanel = $('#proddef');
-    prodDefPanel.addEventListener('dragover', e => { e.preventDefault(); prodDefPanel.style.outline = '2px dashed var(--accent)'; });
-    prodDefPanel.addEventListener('dragleave', e => { prodDefPanel.style.outline = ''; });
-    prodDefPanel.addEventListener('drop', e => {
-      e.preventDefault();
-      prodDefPanel.style.outline = '';
-      const file = e.dataTransfer.files?.[0];
-      handleProdDefFile(file);
-    });
-
-    // Global multi-file drag & drop (anywhere on page)
-    document.addEventListener('dragover', (e) => {
-      if (e.dataTransfer?.types?.includes('Files')) e.preventDefault();
-    });
-    document.addEventListener('drop', (e) => {
-      if (e.dataTransfer?.files?.length) {
-        e.preventDefault();
-        handleMultipleFiles(e.dataTransfer.files);
+    // new: hook export button (idempotent)
+    (() => {
+      const btn = document.getElementById('exportHtmlBtn');
+      if (btn && !btn.dataset.bound) {
+        btn.addEventListener('click', exportReportHtml);
+        btn.dataset.bound = '1';
       }
-    });
+    })();
 
     // Optional: re-draw on resize for crisp canvases
     window.addEventListener('resize', () => renderChartsDashboard());
   </script>
 </body>
 </html>
+
