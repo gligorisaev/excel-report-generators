@@ -670,7 +670,6 @@
       }
 
       // Tests with no executions
-      const tcNameList = tcRows.map(r => (r.testCaseName || '').trim());
       const testsNoExec = tcRows.filter(r => !executedTCNames.has((r.testCaseName || '').trim())).length;
 
       // Avg executions per test
@@ -698,8 +697,22 @@
         .sort((a,b) => b.total - a.total)
         .slice(0, 12);
 
-      // Test cases by story
-      // const storyKey = r => (r.storyNumber || r.storyName || '(none)').trim() || '(none)';
+      // Test workload balance: derive solely from Test Executions
+      const teByAssignee = new Map(); // assignee -> { execs, tcSet }
+      for (const r of teRows) {
+        const key = (r.assignedTo || '(Unassigned)').trim() || '(Unassigned)';
+        if (!teByAssignee.has(key)) teByAssignee.set(key, { execs: 0, tcSet: new Set() });
+        const entry = teByAssignee.get(key);
+        entry.execs++;
+        const tc = (r.testCaseName || '').trim();
+        if (tc) entry.tcSet.add(tc);
+      }
+      const workloadRows = Array.from(teByAssignee.entries())
+        .map(([assignee, v]) => ({ assignee, tests: v.tcSet.size, execs: v.execs }))
+        .sort((a,b) => (b.execs - a.execs) || (b.tests - a.tests))
+        .slice(0, 12);
+
+      // Test cases by story (by story NAME)
       const storyKey = r => (r.storyName || '(none)').trim();
       const byStory = new Map();
       for (const r of tcRows) {
@@ -723,7 +736,7 @@
 
       return {
         totalTC, totalExec, coveragePct, unassigned, passed, failed, blocked, testsNoExec, avgExecPerTest,
-        assigneeRows, tcByStory, tcNoExecList
+        assigneeRows, workloadRows, tcByStory, tcNoExecList
       };
     }
 
@@ -754,6 +767,25 @@
             <div class="k">Tests with No Executions</div><div class="v">${data.testsNoExec}</div>
             <div class="k">Avg Executions/Test</div><div class="v">${data.avgExecPerTest.toFixed(1)}</div>
           </div>
+        </div>
+      `;
+
+      // New: Test Workload Balance
+      const workloadTile = `
+        <div class="tile border-warn">
+          <h3>Test Workload Balance</h3>
+          <table class="mini">
+            <thead><tr><th>Assignee</th><th>Test Cases</th><th>Executions</th></tr></thead>
+            <tbody>
+              ${data.workloadRows.map(r => `
+                <tr>
+                  <td>${esc(r.assignee)}</td>
+                  <td>${r.tests}</td>
+                  <td>${r.execs}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
         </div>
       `;
 
@@ -820,11 +852,69 @@
       `;
 
       tiles.innerHTML = `
+        <div class="muted" style="margin:6px 2px 4px;">🧪 Test Cases & Executions Analysis ▸</div>
         <div class="tiles-grid">
           ${metricsTile}
+          ${workloadTile}
           ${assigneeTile}
           ${tcByStoryTile}
           ${noExecTile}
+        </div>
+      `;
+    }
+
+    // Defects analytics
+    function computeDefectsAnalytics() {
+      const relName = (releaseRow?.releaseName || '').trim().toLowerCase();
+      const dfRows = (defectsRows || []).filter(r =>
+        !relName || String(r.releaseName || '').trim().toLowerCase() === relName
+      );
+      const tcRows = (testCaseRows || []).filter(r =>
+        !relName || String(r.releaseName || '').trim().toLowerCase() === relName
+      );
+
+      if (!dfRows.length && !tcRows.length) return null;
+
+      const totalDefects = dfRows.length;
+      const isClosed = s => /(closed|resolved|done|solved)/i.test(s || '');
+      const closedDefects = dfRows.filter(r => isClosed(r.status)).length;
+      const openDefects = totalDefects - closedDefects;
+      const criticalDefects = dfRows.filter(r => /^critical$/i.test(String(r.severity || ''))).length;
+      const defectDensity = tcRows.length > 0 ? totalDefects / tcRows.length : 0;
+
+      return { totalDefects, defectDensity, criticalDefects, openDefects, closedDefects };
+    }
+
+    function renderDefectsAnalytics() {
+      const panel = document.getElementById('charts');
+      if (!panel) return;
+      const data = computeDefectsAnalytics();
+      if (!data) return;
+
+      let tiles = panel.querySelector('#defectsAnalytics');
+      if (!tiles) {
+        tiles = document.createElement('div');
+        tiles.id = 'defectsAnalytics';
+        panel.appendChild(tiles);
+      }
+
+      const metricsTile = `
+        <div class="tile border-bad">
+          <h3>🐛 Defect Metrics</h3>
+          <div class="kv">
+            <div class="k">Total Defects</div><div class="v">${data.totalDefects}</div>
+            <div class="k">Defect Density</div><div class="v">${data.defectDensity.toFixed(2)}</div>
+            <div class="k">Critical Defects</div><div class="v">${data.criticalDefects}</div>
+            <div class="k">Open Defects</div><div class="v">${data.openDefects}</div>
+            <div class="k">Closed Defects</div><div class="v">${data.closedDefects}</div>
+          </div>
+        </div>
+      `;
+
+      tiles.innerHTML = `
+        <div class="muted" style="margin:10px 2px 4px;">Defects Analysis ▸</div>
+        <div class="tiles-grid">
+          ${metricsTile}
         </div>
       `;
     }
@@ -891,6 +981,7 @@
       // Render analytics tiles
       renderStoriesAnalytics();
       renderTestsAnalytics();
+      renderDefectsAnalytics();
     }
 
     // Hook charts refresh into renders
@@ -1020,13 +1111,14 @@
       `;
 
       const cols = [
-        { key: 'storyNumber', label: 'Story' },
+        // removed: { key: 'storyNumber', label: 'Story' },
         { key: 'storyName', label: 'Title' },
         { key: 'sprint', label: 'Sprint' },
         { key: 'status', label: 'Status', render: v => `<span class="chip ${statusClass(v)}">${esc(v)}</span>` },
         { key: 'ownerName', label: 'Owner' },
         { key: 'assignee', label: 'Assignee' },
-        { key: 'priority', label: 'Priority' },
+        { key: 'requestor', label: 'Requestor' },
+        // removed: { key: 'priority', label: 'Priority' },
         { key: 'totalTestCases', label: 'Test Cases' },
         { key: 'totalDefects', label: 'Defects' },
       ];
