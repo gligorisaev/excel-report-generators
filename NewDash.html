@@ -90,6 +90,24 @@
     /* Remove unused donut CSS
     .donut-wrap, .donut-canvas, .donut-center { display:none; }
     */
+
+    /* Tiles for Stories Analytics */
+    .tiles-grid { display:grid; grid-template-columns: repeat(2, minmax(260px,1fr)); gap:10px; margin-top:12px; }
+    @media (max-width: 800px)  { .tiles-grid { grid-template-columns: 1fr; } }
+    .tile { background:var(--panel-2); border:1px solid var(--border); border-radius:10px; padding:10px; position:relative; }
+    .tile h3 { margin:0 0 8px; font-size:14px; color:var(--muted); text-transform:uppercase; letter-spacing:.4px; display:flex; align-items:center; gap:8px; }
+    .tile h3::before { content:''; width:6px; height:14px; border-radius:3px; background:var(--accent); display:inline-block; }
+    .tile.border-accent { border-left:3px solid var(--accent); }
+    .tile.border-ok { border-left:3px solid var(--ok); }
+    .tile.border-warn { border-left:3px solid var(--warn); }
+    .tile.border-bad { border-left:3px solid var(--bad); }
+    .kv { display:grid; grid-template-columns: 1fr auto; gap:6px 10px; font-size:13px; }
+    .kv .k { color:var(--muted); }
+    .kv .v { color:var(--text); font-weight:600; background:var(--chip); border:1px solid var(--border); padding:2px 6px; border-radius:6px; }
+    .mini { width:100%; border-collapse:collapse; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+    .mini th, .mini td { font-size:12px; padding:6px 6px; border-bottom:1px solid var(--border); }
+    .mini th { color:var(--muted); text-align:left; }
+    .mini td:last-child { text-align:right; color:var(--muted); }
   </style>
 </head>
 <body>
@@ -487,6 +505,137 @@
       };
     }
 
+    // Extend Stories header map to optionally capture story points if present
+    Object.assign(HEADER_MAP_STORIES, {
+      'story points': 'storyPoints',
+      'story points (sp)': 'storyPoints',
+      'story points estimate': 'storyPoints'
+    });
+
+    // Compute aggregated analytics for stories (scoped to current release if selected)
+    function computeStoriesAnalytics() {
+      const relName = (releaseRow?.releaseName || '').trim().toLowerCase();
+      const rows = relName
+        ? (storiesRows || []).filter(r => (r.releaseName || '').trim().toLowerCase() === relName)
+        : (storiesRows || []);
+      if (!rows.length) return null;
+
+      const n = rows.length;
+      const toNum = v => num(v);
+
+      const totalStories = n;
+      const storiesWithoutTests = rows.filter(r => toNum(r.totalTestCases) === 0).length;
+
+      const groupCount = (arr, key) => {
+        const m = new Map();
+        for (const r of arr) {
+          const k = String(r[key] ?? '').trim() || '(none)';
+          m.set(k, (m.get(k) || 0) + 1);
+        }
+        return Array.from(m.entries()).map(([k, v]) => ({ key: k, count: v })).sort((a,b)=>b.count-a.count);
+      };
+
+      const sprints = groupCount(rows, 'sprint');
+      const statuses = groupCount(rows, 'status');
+
+      // Defect Count by Story: ONLY include stories with defects (>0)
+      const defectsByStory = rows
+        .map(r => ({
+          story: r.storyNumber || r.storyName || '(unknown)',
+          title: r.storyName || '',
+          count: toNum(r.totalDefects)
+        }))
+        .filter(x => x.count > 0)
+        .sort((a,b)=>b.count-a.count)
+        .slice(0, 10);
+
+      // Avg test cases per story
+      const totalTCs = rows.reduce((a, r) => a + toNum(r.totalTestCases), 0);
+      const avgTCsPerStory = totalStories ? (totalTCs / totalStories) : 0;
+
+      return {
+        relName,
+        totalStories,
+        storiesWithoutTests,
+        sprints,
+        statuses,
+        defectsByStory,
+        avgTCsPerStory
+      };
+    }
+
+    function renderStoriesAnalytics() {
+      if (!storiesRows || !storiesRows.length) return;
+
+      const panel = document.getElementById('charts');
+      if (!panel) return;
+
+      const data = computeStoriesAnalytics();
+      if (!data) return;
+
+      let tiles = panel.querySelector('#storiesAnalytics');
+      if (!tiles) {
+        tiles = document.createElement('div');
+        tiles.id = 'storiesAnalytics';
+        panel.appendChild(tiles);
+      }
+
+      // Story Metrics: removed Avg Points/Story, QA Coverage, High Impact Stories
+      const metricsTile = `
+        <div class="tile border-accent">
+          <h3>Story Metrics${data.relName ? ` — ${esc(releaseRow.releaseName)}` : ''}</h3>
+          <div class="kv">
+            <div class="k">Total Stories</div><div class="v">${data.totalStories}</div>
+            <div class="k">Stories without Tests</div><div class="v">${data.storiesWithoutTests}</div>
+            <div class="k">Avg TCs/Story</div><div class="v">${data.avgTCsPerStory.toFixed(1)}</div>
+          </div>
+        </div>
+      `;
+
+      const tableRows = (rows) => rows.map(r => `
+        <tr><td>${esc(r.key || r.story)}${r.title ? ` — ${esc(r.title)}` : ''}</td><td>${r.count}</td></tr>
+      `).join('');
+
+      const sprintsTile = `
+        <div class="tile border-ok">
+          <h3>Stories by Sprint</h3>
+          <table class="mini">
+            <thead><tr><th>Sprint</th><th>Stories</th></tr></thead>
+            <tbody>${tableRows(data.sprints.slice(0, 12))}</tbody>
+          </table>
+        </div>
+      `;
+
+      const statusTile = `
+        <div class="tile border-warn">
+          <h3>Stories by Status</h3>
+          <table class="mini">
+            <thead><tr><th>Status</th><th>Stories</th></tr></thead>
+            <tbody>${tableRows(data.statuses)}</tbody>
+          </table>
+        </div>
+      `;
+
+      const defectsTile = `
+        <div class="tile border-bad">
+          <h3>Defect Count by Story</h3>
+          <table class="mini">
+            <thead><tr><th>Story</th><th>Defects</th></tr></thead>
+            <tbody>${tableRows(data.defectsByStory)}</tbody>
+          </table>
+        </div>
+      `;
+
+      tiles.innerHTML = `
+        <div class="tiles-grid">
+          ${metricsTile}
+          ${sprintsTile}
+          ${statusTile}
+          ${defectsTile}
+        </div>
+      `;
+    }
+
     function renderChartsDashboard() {
       const panel = document.getElementById('charts');
       if (!panel) return;
@@ -545,6 +694,9 @@
         panel.appendChild(grid);
       }
       grid.innerHTML = cards.join('');
+
+      // Render stories analytics tiles under charts
+      renderStoriesAnalytics();
     }
 
     // Hook charts refresh into renders
@@ -1349,32 +1501,6 @@
   </script>
 </body>
 </html>
-      const file = e.dataTransfer.files?.[0];
-      handleTestExecFile(file);
-    });
-
-    const defectsPanel = $('#defects');
-    defectsPanel.addEventListener('dragover', e => { e.preventDefault(); defectsPanel.style.outline = '2px dashed var(--accent)'; });
-    defectsPanel.addEventListener('dragleave', e => { defectsPanel.style.outline = ''; });
-    defectsPanel.addEventListener('drop', e => {
-      e.preventDefault();
-      defectsPanel.style.outline = '';
-      const file = e.dataTransfer.files?.[0];
-      handleDefectsFile(file);
-    });
-
-    const prodDefPanel = $('#proddef');
-    prodDefPanel.addEventListener('dragover', e => { e.preventDefault(); prodDefPanel.style.outline = '2px dashed var(--accent)'; });
-    prodDefPanel.addEventListener('dragleave', e => { prodDefPanel.style.outline = ''; });
-    prodDefPanel.addEventListener('drop', e => {
-      e.preventDefault();
-      prodDefPanel.style.outline = '';
-      const file = e.dataTransfer.files?.[0];
-      handleProdDefFile(file);
-    });
-
-    // Global multi-file drag & drop (anywhere on page)
-    document.addEventListener('dragover', (e) => {
       if (e.dataTransfer?.types?.includes('Files')) e.preventDefault();
     });
     document.addEventListener('drop', (e) => {
