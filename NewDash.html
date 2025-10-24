@@ -636,6 +636,199 @@
       `;
     }
 
+    // Tests analytics: compute summary and breakdowns
+    function computeTestsAnalytics() {
+      const relName = (releaseRow?.releaseName || '').trim().toLowerCase();
+
+      const tcRows = (testCaseRows || []).filter(r =>
+        !relName || String(r.releaseName || '').trim().toLowerCase() === relName
+      );
+      const teRows = (testExecRows || []).filter(r =>
+        !relName || String(r.releaseName || '').trim().toLowerCase() === relName
+      );
+
+      if (!tcRows.length && !teRows.length) return null;
+
+      const totalTC = tcRows.length;
+      const totalExec = teRows.length;
+
+      // Unique executed TCs for coverage
+      const executedTCNames = new Set(teRows.map(r => (r.testCaseName || '').trim()).filter(Boolean));
+      const coveragePct = totalTC > 0 ? (executedTCNames.size / totalTC) * 100 : 0;
+
+      // Counters on executions
+      const normStatus = s => String(s || '').toLowerCase();
+      let passed = 0, failed = 0, blocked = 0, inProg = 0, notStarted = 0, unassigned = 0;
+      for (const r of teRows) {
+        const s = normStatus(r.status);
+        if (!String(r.assignedTo || '').trim()) unassigned++;
+        if (s.includes('passed')) passed++;
+        else if (s.includes('failed')) failed++;
+        else if (s.includes('blocked') || s.includes('block')) blocked++;
+        else if (/(in prog|progress)/.test(s)) inProg++;
+        else if (s.includes('not started')) notStarted++;
+      }
+
+      // Tests with no executions
+      const tcNameList = tcRows.map(r => (r.testCaseName || '').trim());
+      const testsNoExec = tcRows.filter(r => !executedTCNames.has((r.testCaseName || '').trim())).length;
+
+      // Avg executions per test
+      const avgExecPerTest = totalTC > 0 ? (totalExec / totalTC) : 0;
+
+      // Status by assignee
+      const byAssignee = new Map(); // assignee => {passed,failed,inProg,notStarted,other,total}
+      const getBucket = (assignee) => {
+        const key = (assignee || '(Unassigned)').trim() || '(Unassigned)';
+        if (!byAssignee.has(key)) byAssignee.set(key, { passed:0, failed:0, inProg:0, notStarted:0, other:0, total:0 });
+        return byAssignee.get(key);
+      };
+      for (const r of teRows) {
+        const b = getBucket(r.assignedTo);
+        const s = normStatus(r.status);
+        if (s.includes('passed')) b.passed++;
+        else if (s.includes('failed')) b.failed++;
+        else if (/(in prog|progress)/.test(s)) b.inProg++;
+        else if (s.includes('not started')) b.notStarted++;
+        else b.other++;
+        b.total++;
+      }
+      const assigneeRows = Array.from(byAssignee.entries())
+        .map(([assignee, v]) => ({ assignee, ...v }))
+        .sort((a,b) => b.total - a.total)
+        .slice(0, 12);
+
+      // Test cases by story
+      // const storyKey = r => (r.storyNumber || r.storyName || '(none)').trim() || '(none)';
+      const storyKey = r => (r.storyName || '(none)').trim();
+      const byStory = new Map();
+      for (const r of tcRows) {
+        const key = storyKey(r);
+        byStory.set(key, (byStory.get(key) || 0) + 1);
+      }
+      const tcByStory = Array.from(byStory.entries())
+        .map(([key, count]) => ({ key, count }))
+        .sort((a,b)=>b.count-a.count)
+        .slice(0, 12);
+
+      // Test cases without executions (top list)
+      const tcNoExecList = tcRows
+        .filter(r => !executedTCNames.has((r.testCaseName || '').trim()))
+        .slice(0, 12)
+        .map(r => ({
+          testCase: r.testCaseName || r.testCaseNumber || '(unnamed)',
+          story: r.storyNumber || r.storyName || '',
+          execs: 0
+        }));
+
+      return {
+        totalTC, totalExec, coveragePct, unassigned, passed, failed, blocked, testsNoExec, avgExecPerTest,
+        assigneeRows, tcByStory, tcNoExecList
+      };
+    }
+
+    function renderTestsAnalytics() {
+      const panel = document.getElementById('charts');
+      if (!panel) return;
+      const data = computeTestsAnalytics();
+      if (!data) return;
+
+      let tiles = panel.querySelector('#testsAnalytics');
+      if (!tiles) {
+        tiles = document.createElement('div');
+        tiles.id = 'testsAnalytics';
+        panel.appendChild(tiles);
+      }
+
+      const metricsTile = `
+        <div class="tile border-accent">
+          <h3>🧪 Test Metrics</h3>
+          <div class="kv">
+            <div class="k">Total Test Cases</div><div class="v">${data.totalTC}</div>
+            <div class="k">Total Executions</div><div class="v">${data.totalExec}</div>
+            <div class="k">Execution Coverage</div><div class="v">${data.coveragePct.toFixed(1)}%</div>
+            <div class="k">Unassigned Executions</div><div class="v">${data.unassigned}</div>
+            <div class="k">Passed Executions</div><div class="v">${data.passed}</div>
+            <div class="k">Failed Executions</div><div class="v">${data.failed}</div>
+            <div class="k">Blocked Executions</div><div class="v">${data.blocked}</div>
+            <div class="k">Tests with No Executions</div><div class="v">${data.testsNoExec}</div>
+            <div class="k">Avg Executions/Test</div><div class="v">${data.avgExecPerTest.toFixed(1)}</div>
+          </div>
+        </div>
+      `;
+
+      const assigneeHead = `
+        <thead>
+          <tr>
+            <th>Assignee</th>
+            <th>Passed</th>
+            <th>Failed</th>
+            <th>In Prog</th>
+            <th>Not Started</th>
+            <th>Total</th>
+          </tr>
+        </thead>
+      `;
+      const assigneeBody = `
+        <tbody>
+          ${data.assigneeRows.map(r => `
+            <tr>
+              <td>${esc(r.assignee)}</td>
+              <td>${r.passed}</td>
+              <td>${r.failed}</td>
+              <td>${r.inProg}</td>
+              <td>${r.notStarted}</td>
+              <td>${r.total}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      `;
+      const assigneeTile = `
+        <div class="tile border-ok">
+          <h3>Test Execution Status by Assignee</h3>
+          <table class="mini">
+            ${assigneeHead}
+            ${assigneeBody}
+          </table>
+        </div>
+      `;
+
+      const tcByStoryTile = `
+        <div class="tile border-warn">
+          <h3>Test Cases by Story</h3>
+          <table class="mini">
+            <thead><tr><th>Story</th><th>Test Cases</th></tr></thead>
+            <tbody>
+              ${data.tcByStory.map(r => `<tr><td>${esc(r.key)}</td><td>${r.count}</td></tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+
+      const noExecTile = `
+        <div class="tile border-bad">
+          <h3>Test Cases Without Test Execution</h3>
+          <table class="mini">
+            <thead><tr><th>Test Case</th><th>Story</th><th>Execs</th></tr></thead>
+            <tbody>
+              ${data.tcNoExecList.map(r => `
+                <tr><td>${esc(r.testCase)}</td><td>${esc(r.story)}</td><td>${r.execs}</td></tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+
+      tiles.innerHTML = `
+        <div class="tiles-grid">
+          ${metricsTile}
+          ${assigneeTile}
+          ${tcByStoryTile}
+          ${noExecTile}
+        </div>
+      `;
+    }
+
     function renderChartsDashboard() {
       const panel = document.getElementById('charts');
       if (!panel) return;
@@ -695,8 +888,9 @@
       }
       grid.innerHTML = cards.join('');
 
-      // Render stories analytics tiles under charts
+      // Render analytics tiles
       renderStoriesAnalytics();
+      renderTestsAnalytics();
     }
 
     // Hook charts refresh into renders
@@ -1489,19 +1683,6 @@
     // Global multi-file drag & drop (anywhere on page)
     document.addEventListener('dragover', (e) => {
       if (e.dataTransfer?.types?.includes('Files')) e.preventDefault();
-    });
-    document.addEventListener('drop', (e) => {
-      if (e.dataTransfer?.files?.length) {
-        e.preventDefault();
-        handleMultipleFiles(e.dataTransfer.files);
-      }
-    });
-
-    // Optional: re-draw on resize for crisp canvases
-    window.addEventListener('resize', () => renderChartsDashboard());
-  </script>
-</body>
-</html>
     });
     document.addEventListener('drop', (e) => {
       if (e.dataTransfer?.files?.length) {
