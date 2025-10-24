@@ -583,7 +583,7 @@
       // Story Metrics: removed Avg Points/Story, QA Coverage, High Impact Stories
       const metricsTile = `
         <div class="tile border-accent">
-          <h3>Story Metrics${data.relName ? ` — ${esc(releaseRow.releaseName)}` : ''}</h3>
+          <h3>Story Metrics</h3>
           <div class="kv">
             <div class="k">Total Stories</div><div class="v">${data.totalStories}</div>
             <div class="k">Stories without Tests</div><div class="v">${data.storiesWithoutTests}</div>
@@ -643,7 +643,7 @@
       const data = buildChartsData();
       const titleEl = panel.querySelector('.release-name');
       const subEl = panel.querySelector('.sub');
-      if (titleEl) titleEl.textContent = `Quality Dashboard${data.relName ? ` — ${releaseRow.releaseName}` : ''}`;
+      if (titleEl) titleEl.textContent = 'Quality Dashboard';
       if (subEl) {
         subEl.innerHTML = `
           <span>TCs: ${data.totals.tc}</span>
@@ -809,7 +809,7 @@
       const headerInfo = `
         <div class="header">
           <div class="h-left">
-            <h1 class="release-name">User Stories ${releaseRow?.releaseName ? `— ${esc(releaseRow.releaseName)}` : ''}</h1>
+            <h1 class="release-name">User Stories</h1>
             <div class="sub">
               <span>Total: ${total}</span>
               <span>Test Cases: ${sumTC}</span>
@@ -892,7 +892,7 @@
       const headerInfo = `
         <div class="header">
           <div class="h-left">
-            <h1 class="release-name">Test Cases ${releaseRow?.releaseName ? `— ${esc(releaseRow.releaseName)}` : ''}</h1>
+            <h1 class="release-name">Test Cases</h1>
             <div class="sub">
               <span>Total TCs: ${totalTCs}</span>
               <span>Total Exec: ${sumTotalExec}</span>
@@ -975,7 +975,7 @@
       const headerInfo = `
         <div class="header">
           <div class="h-left">
-            <h1 class="release-name">Test Executions ${releaseRow?.releaseName ? `— ${esc(releaseRow.releaseName)}` : ''}</h1>
+            <h1 class="release-name">Test Executions</h1>
             <div class="sub">
               <span>Total Execs: ${total}</span>
               <span>Unique TCs: ${uniqueTC}</span>
@@ -1056,7 +1056,7 @@
       const headerInfo = `
         <div class="header">
           <div class="h-left">
-            <h1 class="release-name">Defects ${releaseRow?.releaseName ? `— ${esc(releaseRow.releaseName)}` : ''}</h1>
+            <h1 class="release-name">Defects</h1>
             <div class="sub">
               <span>Total: ${total}</span>
               <span>Open: ${openCount}</span>
@@ -1153,7 +1153,7 @@
       const headerInfo = `
         <div class="header">
           <div class="h-left">
-            <h1 class="release-name">Production Defects ${releaseRow?.releaseName ? `— ${esc(releaseRow.releaseName)}` : ''}</h1>
+            <h1 class="release-name">Production Defects</h1>
             <div class="sub">
               <span>Total: ${total}</span>
               <span>Open: ${openCount}</span>
@@ -1429,6 +1429,7 @@
     releasePanel.addEventListener('dragover', e => { e.preventDefault(); releasePanel.style.outline = '2px dashed var(--accent)'; });
     releasePanel.addEventListener('dragleave', e => { releasePanel.style.outline = ''; });
     releasePanel.addEventListener('drop', e => {
+     
       e.preventDefault();
       releasePanel.style.outline = '';
       const file = e.dataTransfer.files?.[0];
@@ -1501,7 +1502,6 @@
   </script>
 </body>
 </html>
-      if (e.dataTransfer?.types?.includes('Files')) e.preventDefault();
     });
     document.addEventListener('drop', (e) => {
       if (e.dataTransfer?.files?.length) {
