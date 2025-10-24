@@ -1276,13 +1276,12 @@
       `;
 
       const cols = [
-        { key: 'tceNumber', label: 'Execution #' },
         { key: 'testCaseName', label: 'Test Case' },
         { key: 'storyName', label: 'Story' },
         { key: 'status', label: 'Status', render: v => `<span class="chip ${statusClass(v)}">${esc(v)}</span>` },
         { key: 'assignedTo', label: 'Assigned To' },
         { key: 'datePassed', label: 'Date Passed' },
-        { key: 'targetCompletionDate', label: 'Target Date' },
+        { key: 'targetCompletionDate', label: 'Target Completion Date' },
         { key: 'createdDate', label: 'Created' },
         { key: 'lastModifiedDate', label: 'Last Modified' },
       ];
