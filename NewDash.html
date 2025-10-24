@@ -876,8 +876,7 @@
       if (!dfRows.length && !tcRows.length) return null;
 
       const totalDefects = dfRows.length;
-      const isClosed = s => /(closed|resolved|done|solved)/i.test(s || '');
-      const closedDefects = dfRows.filter(r => isClosed(r.status)).length;
+      const closedDefects = dfRows.filter(r => /closed|resolved|done|solved/i.test(r.status)).length;
       const openDefects = totalDefects - closedDefects;
       const criticalDefects = dfRows.filter(r => /^critical$/i.test(String(r.severity || ''))).length;
       const defectDensity = tcRows.length > 0 ? totalDefects / tcRows.length : 0;
@@ -915,6 +914,83 @@
         <div class="muted" style="margin:10px 2px 4px;">Defects Analysis ▸</div>
         <div class="tiles-grid">
           ${metricsTile}
+        </div>
+      `;
+    }
+
+    // New: Production defects analytics
+    function computeProdDefAnalytics() {
+      const relName = (releaseRow?.releaseName || '').trim().toLowerCase();
+      const pdRows = (prodDefRows || []).filter(r =>
+        !relName || String(r.releaseName || '').trim().toLowerCase() === relName
+      );
+      if (!pdRows.length) return null;
+
+      const total = pdRows.length;
+      const withTestCase = pdRows.filter(r => String(r.testCase || '').trim()).length;
+      const coveragePct = total > 0 ? (withTestCase / total) * 100 : 0;
+
+      const byStatus = new Map(); // normStatus -> { label, count }
+      for (const r of pdRows) {
+        const raw = String(r.status || '(Unknown)').trim();
+        const key = raw.toLowerCase() || '(unknown)';
+        if (!byStatus.has(key)) byStatus.set(key, { label: raw, count: 0 });
+        byStatus.get(key).count++;
+      }
+      const statusRows = Array.from(byStatus.values())
+        .map(x => ({ label: x.label, count: x.count, pct: total > 0 ? (x.count / total) * 100 : 0 }))
+        .sort((a, b) => b.count - a.count);
+
+      return { total, withTestCase, coveragePct, statusRows };
+    }
+
+    function renderProdDefAnalytics() {
+      const panel = document.getElementById('charts');
+      if (!panel) return;
+      const data = computeProdDefAnalytics();
+      if (!data) return;
+
+      let tiles = panel.querySelector('#prodDefAnalytics');
+      if (!tiles) {
+        tiles = document.createElement('div');
+        tiles.id = 'prodDefAnalytics';
+        panel.appendChild(tiles);
+      }
+
+      const metricsTile = `
+        <div class="tile border-bad">
+          <h3>Production Defect Metrics</h3>
+          <div class="kv">
+            <div class="k">Total Production Defects</div><div class="v">${data.total}</div>
+            <div class="k">With Test Case</div><div class="v">${data.withTestCase}</div>
+            <div class="k">Test Case Coverage</div><div class="v">${data.coveragePct.toFixed(1)}%</div>
+          </div>
+        </div>
+      `;
+
+      const statusTile = `
+        <div class="tile border-warn">
+          <h3>Production Defects by Status</h3>
+          <table class="mini">
+            <thead><tr><th>Status</th><th>%</th><th>Count</th></tr></thead>
+            <tbody>
+              ${data.statusRows.map(r => `
+                <tr>
+                  <td>${esc(r.label)}</td>
+                  <td>${r.pct.toFixed(1)}%</td>
+                  <td>${r.count}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+
+      tiles.innerHTML = `
+        <div class="muted" style="margin:10px 2px 4px;">Production Defects Analysis ▸</div>
+        <div class="tiles-grid">
+          ${metricsTile}
+          ${statusTile}
         </div>
       `;
     }
@@ -982,6 +1058,8 @@
       renderStoriesAnalytics();
       renderTestsAnalytics();
       renderDefectsAnalytics();
+      // New: render Production Defects analysis right after defects
+      renderProdDefAnalytics();
     }
 
     // Hook charts refresh into renders
