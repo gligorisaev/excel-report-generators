@@ -1196,19 +1196,17 @@
       `;
 
       const cols = [
-        { key: 'testCaseNumber', label: 'Test Case' },
+        // removed: { key: 'testCaseNumber', label: 'Test Case' },
         { key: 'testCaseName', label: 'Title' },
-        { key: 'storyNumber', label: 'Story' },
+        // replaced Story Number with Story Name
+        { key: 'storyName', label: 'Story' },
         { key: 'status', label: 'Status', render: v => `<span class="chip ${statusClass(v)}">${esc(v)}</span>` },
         { key: 'type', label: 'Type' },
-        { key: 'assignedTo', label: 'Assigned To' },
-        { key: 'passedExecutions', label: 'Passed' },
-        { key: 'failedExecutions', label: 'Failed' },
-        { key: 'executionsNotPassed', label: 'Not Passed' },
-        { key: 'totalExecutions', label: 'Total Exec' },
-        { key: 'openDefects', label: 'Open Defects' },
-        { key: 'totalDefects', label: 'Total Defects' },
-        { key: 'tcEndDate', label: 'End Date' },
+        // removed: assignedTo, passedExecutions, failedExecutions, executionsNotPassed, totalExecutions
+        // removed: openDefects, totalDefects, tcEndDate
+        { key: 'createdDate', label: 'Created' },
+        { key: 'createdBy', label: 'Created By' },
+        { key: 'lastModifiedDate', label: 'Last Modified' },
         { key: 'ageDays', label: 'Age (d)' },
       ];
 
