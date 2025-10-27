@@ -149,7 +149,7 @@
 
     <!-- Reverted: release panel is not collapsible -->
     <div id="content" class="panel">
-      <div class="empty">Load releases_gligor.xls to populate this section.</div>
+      <div class="empty">Load Releases xls/csv to populate this section.</div>
     </div>
 
     <!-- New: Quality Dashboard right after Release Information -->
@@ -164,23 +164,23 @@
     </div>
 
     <details id="stories" class="panel" style="margin-top:12px;">
-      <summary><div class="empty">Load stories_gligor.xls to populate the User Stories section.</div></summary>
+      <summary><div class="empty">Load Stories xls/csv to populate the User Stories section.</div></summary>
     </details>
 
     <details id="testcases" class="panel" style="margin-top:12px;">
-      <summary><div class="empty">Load test_cases_gligor.xls to populate the Test Cases section.</div></summary>
+      <summary><div class="empty">Load Test Cases xls/csv to populate the Test Cases section.</div></summary>
     </details>
 
     <details id="testexec" class="panel" style="margin-top:12px;">
-      <summary><div class="empty">Load te_gligor.xls to populate the Test Executions section.</div></summary>
+      <summary><div class="empty">Load Test Executions xls/csv to populate the Test Executions section.</div></summary>
     </details>
 
     <details id="defects" class="panel" style="margin-top:12px;">
-      <summary><div class="empty">Load defects_gligor.xls to populate the Defects section.</div></summary>
+      <summary><div class="empty">Load Defects xls/csv to populate the Defects section.</div></summary>
     </details>
 
     <details id="proddef" class="panel" style="margin-top:12px;">
-      <summary><div class="empty">Load proddef_gligor.xls to populate the Production Defects section.</div></summary>
+      <summary><div class="empty">Load Production Defects xls/csv to populate the Production Defects section.</div></summary>
     </details>
   </div>
 
@@ -314,7 +314,12 @@
     };
 
     function normalizeHeader(h) {
-      return String(h || '').trim().toLowerCase().replace(/\s+/g, ' ');
+      // strip BOM, lowercase, squeeze spaces
+      return String(h || '')
+        .replace(/^\uFEFF/, '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
     }
 
     function parseHtmlTableToObjectsWithMap(html, headerMap) {
@@ -1443,7 +1448,7 @@
             <span class="chip ${sevInProg ? 'warn' : ''}">In Prog: ${sevInProg}</span>
             <span class="chip ${sevNotStarted ? 'warn' : ''}">Not Started: ${sevNotStarted}</span>
           </div>
-                                                         </div>
+        </div>
       `;
 
       const sevChip = (v) => {
@@ -1596,161 +1601,241 @@
       renderChartsDashboard();
     }
 
-    function setPanelError(panelId, msg) {
-      const el = $(panelId);
-      if (!el) return;
-      // Render summary only for collapsible sections (DETAILS), plain for DIV
-      if (el.tagName === 'DETAILS') {
-        el.innerHTML = `<summary><div class="empty">${esc(msg)}</div></summary>`;
-      } else {
-        el.innerHTML = `<div class="empty">${esc(msg)}</div>`;
-      }
-    }
-
+    // CSV/HTML detection helpers
+    function isCsvFile(file) { return !!(file && /\.csv$/i.test(file.name)); }
+    function isHtmlTable(text) { return /<table/i.test(String(text || '')); }
     async function readTextOrError(file) {
+      if (!file) return null;
       const text = await file.text();
-      if (!/<table/i.test(text)) return null;
-      return text;
+      return (isHtmlTable(text) || isCsvFile(file)) ? text : null;
     }
 
-    async function handleReleaseFile(file) {
-      if (!file) return;
-      const text = await readTextOrError(file);
-      if (!text) { setPanelError('#content', 'Unsupported file. Please use an HTML-table .xls export.'); return; }
-      const rows = parseHtmlTableToObjects(text);
-      renderTopSection(rows[0]);
+    // CSV parsing utilities
+    function detectCsvDelimiter(csvText) {
+      const lines = String(csvText||'').split(/\r?\n/).filter(l=>l.length>0);
+      const first = lines[0]||'';
+      const delims = [',',';','\t'];
+      let bestDelim=',', bestCount=-1;
+      for (const d of delims) {
+        let cnt=0, inQ=false;
+        for (let i=0; i<first.length; i++) {
+          const c=first[i];
+          if (c==='"') { if (first[i+1]==='"') { i++; continue; } inQ=!inQ; }
+          else if (!inQ && c===d) cnt++;
+        }
+        if (cnt>bestCount) { bestCount=cnt; bestDelim=d; }
+      }
+      return bestDelim;
     }
-
-    async function handleStoriesFile(file) {
-      if (!file) return;
-      const text = await readTextOrError(file);
-      if (!text) { setPanelError('#stories', 'Unsupported file. Please use an HTML-table .xls export.'); return; }
-      storiesRows = parseHtmlTableToObjectsWithMap(text, HEADER_MAP_STORIES);
-      renderStoriesSection(storiesRows);
+    function parseCsvRecords(csvText, delimiter) {
+      const rows=[];
+      let row=[], field='', inQuotes=false;
+      for (let i=0; i<csvText.length; i++) {
+        const c=csvText[i];
+        if (inQuotes) { if (c==='"') { if (csvText[i+1]==='"') { field+='"'; i++; } else inQuotes=false; } else field+=c; }
+        else { if (c==='"') inQuotes=true; else if (c===delimiter) { row.push(field); field=''; }
+          else if (c==='\r') {} else if (c==='\n') { row.push(field); rows.push(row); row=[]; field=''; } else field+=c; }
+      }
+      if (field||row.length) { row.push(field); rows.push(row); }
+      return rows;
     }
-
-    async function handleTestCasesFile(file) {
-      if (!file) return;
-      const text = await readTextOrError(file);
-      if (!text) { setPanelError('#testcases', 'Unsupported file. Please use an HTML-table .xls export.'); return; }
-      testCaseRows = parseHtmlTableToObjectsWithMap(text, HEADER_MAP_TESTCASES);
-      renderTestCasesSection(testCaseRows);
+    function buildLooseHeaderMap(base) {
+      const m=Object.assign({},base);
+      const add=(k,v)=>{ const nk=normalizeHeader(k); if (!(nk in m)) m[nk]=v; };
+      const prefixRe=/^(release|story|test case|test case execution|production defect)\s*:\s*/i;
+      for (const [k,v] of Object.entries(base)) {
+        const nk=normalizeHeader(k); add(nk,v); add(nk.replace(prefixRe,''),v); add(nk.replace(/^#\s*/,''),v);
+        add(nk.replace(/\([^)]*\)/g,' ').replace(/\s+/g,' '),v); add(nk.replace(/:/g,' ').replace(/\s+/g,' '),v);
+      }
+      return m;
     }
-
-    async function handleTestExecFile(file) {
-      if (!file) return;
-      const text = await readTextOrError(file);
-      if (!text) { setPanelError('#testexec', 'Unsupported file. Please use an HTML-table .xls export.'); return; }
-      testExecRows = parseHtmlTableToObjectsWithMap(text, HEADER_MAP_TESTEXEC);
-      renderTestExecSection(testExecRows);
+    function findHeaderRowIndex(rows, looseMap) {
+      const keys=new Set(Object.keys(looseMap));
+      let bestIdx=0, bestScore=-1;
+      const lim=Math.min(rows.length,20);
+      for (let i=0; i<lim; i++) {
+        const arr=rows[i]||[];
+        let s=0;
+        for (const h of arr) if (keys.has(normalizeHeader(h))) s++;
+        if (s>bestScore) { bestScore=s; bestIdx=i; }
+      }
+      return bestScore>0?bestIdx:0;
     }
-
-    async function handleDefectsFile(file) {
-      if (!file) return;
-      const text = await readTextOrError(file);
-      if (!text) { setPanelError('#defects', 'Unsupported file. Please use an HTML-table .xls export.'); return; }
-      defectsRows = parseHtmlTableToObjectsWithMap(text, HEADER_MAP_DEFECTS);
-      renderDefectsSection(defectsRows);
+    function extractHeadersFromCsv(csvText) {
+      const delimiter=detectCsvDelimiter(csvText);
+      const rows=parseCsvRecords(csvText,delimiter);
+      if (!rows.length) return [];
+      const unionBase=Object.assign({},HEADER_MAP_RELEASE,HEADER_MAP_STORIES,HEADER_MAP_TESTCASES,HEADER_MAP_TESTEXEC,HEADER_MAP_DEFECTS,HEADER_MAP_PRODDEF);
+      const unionLoose=buildLooseHeaderMap(unionBase);
+      const idx=findHeaderRowIndex(rows,unionLoose);
+      return (rows[idx]||[]).map(h=>normalizeHeader(h));
     }
-
-    async function handleProdDefFile(file) {
-      if (!file) return;
-      const text = await readTextOrError(file);
-      if (!text) { setPanelError('#proddef', 'Unsupported file. Please use an HTML-table .xls export.'); return; }
-      prodDefRows = parseHtmlTableToObjectsWithMap(text, HEADER_MAP_PRODDEF);
-      renderProdDefSection(prodDefRows);
+    function parseCsvToObjectsWithMap(csvText, headerMap) {
+      const delimiter=detectCsvDelimiter(csvText);
+      const rows=parseCsvRecords(csvText,delimiter);
+      if (!rows.length) return [];
+      const loose=buildLooseHeaderMap(headerMap);
+      const headerRowIndex=findHeaderRowIndex(rows,loose);
+      const headerRow=rows[headerRowIndex]||[];
+      const headers=headerRow.map(h=>normalizeHeader(h));
+      const mapped=headers.map(h=>loose[h]||h);
+      const data=[];
+      for (let r=headerRowIndex+1; r<rows.length; r++) {
+        const arr=rows[r];
+        if (!arr||arr.every(v=>String(v||'').trim()==='')) continue;
+        const obj={};
+        const maxLen=Math.max(headers.length,arr.length);
+        for (let c=0; c<maxLen; c++) {
+          const key=mapped[c]??`col_${c}`;
+          obj[key]=String(arr[c]??'').replace(/^\uFEFF/,'').trim();
+        }
+        data.push(obj);
+      }
+      return data;
     }
-
-    // Helpers for multi-file header detection (used by "Load All")
     function extractNormalizedHeadersFromHtml(html) {
       try {
-        const sandbox = document.implementation.createHTMLDocument('');
-        sandbox.documentElement.innerHTML = html;
-        const table = sandbox.querySelector('table');
+        const sandbox=document.implementation.createHTMLDocument('');
+        sandbox.documentElement.innerHTML=html;
+        const table=sandbox.querySelector('table');
         if (!table) return [];
-        const firstRow = table.querySelector('tr');
+        const firstRow=table.querySelector('tr');
         if (!firstRow) return [];
-        const headerCells = firstRow.querySelectorAll('th,td');
-        return Array.from(headerCells).map(th => normalizeHeader(th.textContent));
-      } catch {
-        return [];
-      }
+        const cells=firstRow.querySelectorAll('th,td');
+        return Array.from(cells).map(th=>normalizeHeader(th.textContent));
+      } catch { return []; }
     }
-
-    function scoreHeaders(headers, headerMap) {
-      if (!headers.length) return 0;
-      const set = new Set(headers);
-      let score = 0;
-      for (const k of Object.keys(headerMap)) if (set.has(k)) score++;
-      return score;
-    }
-
     function detectFileTypeByHeaders(headers) {
-      const scores = [
-        ['release', scoreHeaders(headers, HEADER_MAP_RELEASE)],
-        ['stories', scoreHeaders(headers, HEADER_MAP_STORIES)],
-        ['testcases', scoreHeaders(headers, HEADER_MAP_TESTCASES)],
-        ['testexec', scoreHeaders(headers, HEADER_MAP_TESTEXEC)],
-        ['defects', scoreHeaders(headers, HEADER_MAP_DEFECTS)],
-        ['proddef', scoreHeaders(headers, HEADER_MAP_PRODDEF)],
-      ];
-      let best = ['unknown', 0];
-      for (const s of scores) if (s[1] > best[1]) best = s;
-      return best[1] >= 2 ? best[0] : 'unknown';
+      const simplify=s=>String(s||'').replace(/^\uFEFF/,'').toLowerCase().replace(/^(release|story|test case|test case execution|production defect)\s*:\s*/,'').replace(/\([^)]*\)/g,' ').replace(/[#:]/g,' ').replace(/\s+/g,' ').trim();
+      const simpHeaders=new Set(headers.map(simplify));
+      const scoreWithMap=(headerMap)=>{let score=0; for (const k of Object.keys(headerMap)) if (simpHeaders.has(simplify(k))) score++; return score;};
+      const scores=[['release',scoreWithMap(HEADER_MAP_RELEASE)],['stories',scoreWithMap(HEADER_MAP_STORIES)],['testcases',scoreWithMap(HEADER_MAP_TESTCASES)],['testexec',scoreWithMap(HEADER_MAP_TESTEXEC)],['defects',scoreWithMap(HEADER_MAP_DEFECTS)],['proddef',scoreWithMap(HEADER_MAP_PRODDEF)]];
+      let best=['unknown',0];
+      for (const s of scores) if (s[1]>best[1]) best=s;
+      return best[1]>=1?best[0]:'unknown';
+    }
+
+    function setPanelError(panelId, msg) {
+      const id=String(panelId||'').replace(/^#/,'')
+      const el=document.getElementById(id)||(panelId?$(panelId):null);
+      if (!el) return;
+      if (el.tagName==='DETAILS') el.innerHTML=`<summary><div class="empty">${esc(msg)}</div></summary>`;
+      else el.innerHTML=`<div class="empty">${esc(msg)}</div>`;
+    }
+
+    function handleReleaseFile(file) {
+      if (!file) return;
+      const reader=new FileReader();
+      reader.onload=(e)=>{
+        const text=e.target.result;
+        const headers=isHtmlTable(text)?extractNormalizedHeadersFromHtml(text):extractHeadersFromCsv(text);
+        if (detectFileTypeByHeaders(headers)!=='release') { setPanelError('content','Invalid release file format.'); return; }
+        const data=isHtmlTable(text)?parseHtmlTableToObjects(text):parseCsvToObjectsWithMap(text,HEADER_MAP_RELEASE);
+        if (!data.length) { setPanelError('content','No valid release data found.'); return; }
+        renderTopSection(data[0]);
+      };
+      reader.readAsText(file);
+    }
+    function handleStoriesFile(file) {
+      if (!file) return;
+      const reader=new FileReader();
+      reader.onload=(e)=>{
+        const text=e.target.result;
+        const headers=isHtmlTable(text)?extractNormalizedHeadersFromHtml(text):extractHeadersFromCsv(text);
+        if (detectFileTypeByHeaders(headers)!=='stories') { setPanelError('stories','Invalid user stories file format.'); return; }
+        const data=isHtmlTable(text)?parseHtmlTableToObjectsWithMap(text,HEADER_MAP_STORIES):parseCsvToObjectsWithMap(text,HEADER_MAP_STORIES);
+        if (!data.length) { setPanelError('stories','No valid user stories data found.'); return; }
+        storiesRows=data; renderStoriesSection(data); renderChartsDashboard();
+      };
+      reader.readAsText(file);
+    }
+    function handleTestCasesFile(file) {
+      if (!file) return;
+      const reader=new FileReader();
+      reader.onload=(e)=>{
+        const text=e.target.result;
+        const headers=isHtmlTable(text)?extractNormalizedHeadersFromHtml(text):extractHeadersFromCsv(text);
+        if (detectFileTypeByHeaders(headers)!=='testcases') { setPanelError('testcases','Invalid test cases file format.'); return; }
+        const data=isHtmlTable(text)?parseHtmlTableToObjectsWithMap(text,HEADER_MAP_TESTCASES):parseCsvToObjectsWithMap(text,HEADER_MAP_TESTCASES);
+        if (!data.length) { setPanelError('testcases','No valid test cases data found.'); return; }
+        testCaseRows=data; renderTestCasesSection(data); renderChartsDashboard();
+      };
+      reader.readAsText(file);
+    }
+    function handleTestExecFile(file) {
+      if (!file) return;
+      const reader=new FileReader();
+      reader.onload=(e)=>{
+        const text=e.target.result;
+        const headers=isHtmlTable(text)?extractNormalizedHeadersFromHtml(text):extractHeadersFromCsv(text);
+        if (detectFileTypeByHeaders(headers)!=='testexec') { setPanelError('testexec','Invalid test executions file format.'); return; }
+        const data=isHtmlTable(text)?parseHtmlTableToObjectsWithMap(text,HEADER_MAP_TESTEXEC):parseCsvToObjectsWithMap(text,HEADER_MAP_TESTEXEC);
+        if (!data.length) { setPanelError('testexec','No valid test executions data found.'); return; }
+        testExecRows=data; renderTestExecSection(data); renderChartsDashboard();
+      };
+      reader.readAsText(file);
+    }
+    function handleDefectsFile(file) {
+      if (!file) return;
+      const reader=new FileReader();
+      reader.onload=(e)=>{
+        const text=e.target.result;
+        const headers=isHtmlTable(text)?extractNormalizedHeadersFromHtml(text):extractHeadersFromCsv(text);
+        if (detectFileTypeByHeaders(headers)!=='defects') { setPanelError('defects','Invalid defects file format.'); return; }
+        const data=isHtmlTable(text)?parseHtmlTableToObjectsWithMap(text,HEADER_MAP_DEFECTS):parseCsvToObjectsWithMap(text,HEADER_MAP_DEFECTS);
+        if (!data.length) { setPanelError('defects','No valid defects data found.'); return; }
+        defectsRows=data; renderDefectsSection(data); renderChartsDashboard();
+      };
+      reader.readAsText(file);
+    }
+    function handleProdDefFile(file) {
+      if (!file) return;
+      const reader=new FileReader();
+      reader.onload=(e)=>{
+        const text=e.target.result;
+        const headers=isHtmlTable(text)?extractNormalizedHeadersFromHtml(text):extractHeadersFromCsv(text);
+        if (detectFileTypeByHeaders(headers)!=='proddef') { setPanelError('proddef','Invalid production defects file format.'); return; }
+        const data=isHtmlTable(text)?parseHtmlTableToObjectsWithMap(text,HEADER_MAP_PRODDEF):parseCsvToObjectsWithMap(text,HEADER_MAP_PRODDEF);
+        if (!data.length) { setPanelError('proddef','No valid production defects data found.'); return; }
+        prodDefRows=data; renderProdDefSection(data); renderChartsDashboard();
+      };
+      reader.readAsText(file);
     }
 
     async function handleMultipleFiles(fileList) {
-      if (!fileList || !fileList.length) return;
-
-      let releaseCandidate = null;
-      let storiesAgg = [];
-      let testCasesAgg = [];
-      let testExecAgg = [];
-      let defectsAgg = [];
-      let prodDefAgg = [];
-      const unrecognized = [];
-
+      if (!fileList||!fileList.length) return;
+      let releaseCandidate=null;
+      let storiesAgg=[], testCasesAgg=[], testExecAgg=[], defectsAgg=[], prodDefAgg=[];
+      const unrecognized=[];
       for (const file of Array.from(fileList)) {
-        const text = await readTextOrError(file);
+        const text=await readTextOrError(file);
         if (!text) { unrecognized.push(file.name); continue; }
-
-        const headers = extractNormalizedHeadersFromHtml(text);
-        const type = detectFileTypeByHeaders(headers);
-
+        let headers=[];
+        if (isHtmlTable(text)) headers=extractNormalizedHeadersFromHtml(text);
+        else if (isCsvFile(file)) headers=extractHeadersFromCsv(text);
+        const type=detectFileTypeByHeaders(headers);
         try {
           switch (type) {
             case 'release': {
-              const rows = parseHtmlTableToObjects(text);
-              if (rows && rows.length && !releaseCandidate) releaseCandidate = rows[0];
+              const rows=isHtmlTable(text)?parseHtmlTableToObjects(text):parseCsvToObjectsWithMap(text,HEADER_MAP_RELEASE);
+              if (rows&&rows.length&&!releaseCandidate) releaseCandidate=rows[0];
               break;
             }
-            case 'stories':
-              storiesAgg = storiesAgg.concat(parseHtmlTableToObjectsWithMap(text, HEADER_MAP_STORIES)); break;
-            case 'testcases':
-              testCasesAgg = testCasesAgg.concat(parseHtmlTableToObjectsWithMap(text, HEADER_MAP_TESTCASES)); break;
-            case 'testexec':
-              testExecAgg = testExecAgg.concat(parseHtmlTableToObjectsWithMap(text, HEADER_MAP_TESTEXEC)); break;
-            case 'defects':
-              defectsAgg = defectsAgg.concat(parseHtmlTableToObjectsWithMap(text, HEADER_MAP_DEFECTS)); break;
-            case 'proddef':
-              prodDefAgg = prodDefAgg.concat(parseHtmlTableToObjectsWithMap(text, HEADER_MAP_PRODDEF)); break;
-            default:
-              unrecognized.push(file.name);
+            case 'stories': storiesAgg=storiesAgg.concat(isHtmlTable(text)?parseHtmlTableToObjectsWithMap(text,HEADER_MAP_STORIES):parseCsvToObjectsWithMap(text,HEADER_MAP_STORIES)); break;
+            case 'testcases': testCasesAgg=testCasesAgg.concat(isHtmlTable(text)?parseHtmlTableToObjectsWithMap(text,HEADER_MAP_TESTCASES):parseCsvToObjectsWithMap(text,HEADER_MAP_TESTCASES)); break;
+            case 'testexec': testExecAgg=testExecAgg.concat(isHtmlTable(text)?parseHtmlTableToObjectsWithMap(text,HEADER_MAP_TESTEXEC):parseCsvToObjectsWithMap(text,HEADER_MAP_TESTEXEC)); break;
+            case 'defects': defectsAgg=defectsAgg.concat(isHtmlTable(text)?parseHtmlTableToObjectsWithMap(text,HEADER_MAP_DEFECTS):parseCsvToObjectsWithMap(text,HEADER_MAP_DEFECTS)); break;
+            case 'proddef': prodDefAgg=prodDefAgg.concat(isHtmlTable(text)?parseHtmlTableToObjectsWithMap(text,HEADER_MAP_PRODDEF):parseCsvToObjectsWithMap(text,HEADER_MAP_PRODDEF)); break;
+            default: unrecognized.push(file.name);
           }
-        } catch {
-          unrecognized.push(file.name);
-        }
+        } catch { unrecognized.push(file.name); }
       }
-
-      if (storiesAgg.length) storiesRows = storiesAgg;
-      if (testCasesAgg.length) testCaseRows = testCasesAgg;
-      if (testExecAgg.length) testExecRows = testExecAgg;
-      if (defectsAgg.length) defectsRows = defectsAgg;
-      if (prodDefAgg.length) prodDefRows = prodDefAgg;
-
-      if (releaseCandidate) {
-        renderTopSection(releaseCandidate);
-      } else {
+      if (storiesAgg.length) storiesRows=storiesAgg;
+      if (testCasesAgg.length) testCaseRows=testCasesAgg;
+      if (testExecAgg.length) testExecRows=testExecAgg;
+      if (defectsAgg.length) defectsRows=defectsAgg;
+      if (prodDefAgg.length) prodDefRows=prodDefAgg;
+      if (releaseCandidate) { renderTopSection(releaseCandidate); } else {
         if (storiesRows.length) renderStoriesSection(storiesRows);
         if (testCaseRows.length) renderTestCasesSection(testCaseRows);
         if (testExecRows.length) renderTestExecSection(testExecRows);
@@ -1758,91 +1843,42 @@
         if (prodDefRows.length) renderProdDefSection(prodDefRows);
         renderChartsDashboard();
       }
-
       if (unrecognized.length) console.info('Unrecognized or unsupported files:', unrecognized);
     }
 
-    // Single-file input handlers
-    $('#releaseFileInput').addEventListener('change', (e) => {
-      const file = e.target.files?.[0];
-      handleReleaseFile(file);
-    });
-    $('#storiesFileInput').addEventListener('change', (e) => {
-      const file = e.target.files?.[0];
-      handleStoriesFile(file);
-    });
-    $('#testCasesFileInput').addEventListener('change', (e) => {
-      const file = e.target.files?.[0];
-      handleTestCasesFile(file);
-    });
-    $('#testExecFileInput').addEventListener('change', (e) => {
-      const file = e.target.files?.[0];
-      handleTestExecFile(file);
-    });
-    $('#defectsFileInput').addEventListener('change', (e) => {
-      const file = e.target.files?.[0];
-      handleDefectsFile(file);
-    });
-    $('#prodDefFileInput').addEventListener('change', (e) => {
-      const file = e.target.files?.[0];
-      handleProdDefFile(file);
-    });
-
-    // Multi-file input handler
-    $('#allFilesInput').addEventListener('change', (e) => {
-      const files = e.target.files;
-      handleMultipleFiles(files);
-      e.target.value = ''; // allow re-selecting same files
-    });
-
-    // new: export current report as a clean standalone HTML file
+    // Export snapshot
     function exportReportHtml() {
-      // Clone head and strip scripts
       const headClone = document.head.cloneNode(true);
       headClone.querySelectorAll('script').forEach(s => s.remove());
 
-      // Clone body, remove load controls and all scripts
       const bodyClone = document.body.cloneNode(true);
       bodyClone.querySelectorAll('.topbar .controls').forEach(el => el.remove());
       bodyClone.querySelectorAll('script').forEach(s => s.remove());
 
-      // Build final HTML string
-      const htmlStr =
-        '<!doctype html>\n' +
-        '<html lang="en">\n' +
-        '<head>' + headClone.innerHTML + '</head>\n' +
-        '<body>' + bodyClone.innerHTML + '</body>\n' +
-        '</html>';
+      const htmlStr = '<!doctype html>\n<html lang="en">\n<head>' +
+        headClone.innerHTML + '</head>\n<body>' + bodyClone.innerHTML + '</body>\n</html>';
 
-      // Name from release if available, plus timestamp
       const name = (releaseRow?.releaseName || 'ReleaseReport').replace(/[\\\/:*?"<>|]/g, '_');
-      const now = new Date();
-      const pad = n => String(n).padStart(2, '0');
-      const timestamp = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
-      const filename = `${name}_${timestamp}.html`;
-
-      const blob = new Blob([htmlStr], { type: 'text/html;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
+      const now = new Date(), pad = n => String(n).padStart(2, '0');
+      const ts = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
       const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 0);
+      a.href = URL.createObjectURL(new Blob([htmlStr], { type: 'text/html;charset=utf-8' }));
+      a.download = `${name}_${ts}.html`;
+      document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
     }
 
-    // new: hook export button (idempotent)
-    (() => {
-      const btn = document.getElementById('exportHtmlBtn');
-      if (btn && !btn.dataset.bound) {
-        btn.addEventListener('click', exportReportHtml);
-        btn.dataset.bound = '1';
-      }
-    })();
+    // Wire inputs
+    document.getElementById('exportHtmlBtn')?.addEventListener('click', exportReportHtml);
+    document.getElementById('releaseFileInput')?.addEventListener('change', e => handleReleaseFile(e.target.files?.[0]));
+    document.getElementById('storiesFileInput')?.addEventListener('change', e => handleStoriesFile(e.target.files?.[0]));
+    document.getElementById('testCasesFileInput')?.addEventListener('change', e => handleTestCasesFile(e.target.files?.[0]));
+    document.getElementById('testExecFileInput')?.addEventListener('change', e => handleTestExecFile(e.target.files?.[0]));
+    document.getElementById('defectsFileInput')?.addEventListener('change', e => handleDefectsFile(e.target.files?.[0]));
+    document.getElementById('prodDefFileInput')?.addEventListener('change', e => handleProdDefFile(e.target.files?.[0]));
+    document.getElementById('allFilesInput')?.addEventListener('change', e => { handleMultipleFiles(e.target.files); e.target.value=''; });
 
-    // Optional: re-draw on resize for crisp canvases
+    // Resize hook
     window.addEventListener('resize', () => renderChartsDashboard());
   </script>
 </body>
 </html>
-
