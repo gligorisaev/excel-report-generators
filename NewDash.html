@@ -108,6 +108,32 @@
     .mini th, .mini td { font-size:12px; padding:6px 6px; border-bottom:1px solid var(--border); }
     .mini th { color:var(--muted); text-align:left; }
     .mini td:last-child { text-align:right; color:var(--muted); }
+
+    /* Slide deck styles */
+    .slide-deck { display: none; }
+    .slide-deck.active { display: block; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: #000; z-index: 9999; overflow: auto; }
+    .slide { width: 1024px; height: 768px; margin: 0 auto; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); color: var(--text); padding: 60px 80px; box-sizing: border-box; page-break-after: always; position: relative; display: flex; flex-direction: column; }
+    .slide h1 { font-size: 48px; font-weight: 700; margin: 0 0 16px; color: var(--accent); }
+    .slide h2 { font-size: 36px; font-weight: 600; margin: 0 0 24px; color: var(--text); }
+    .slide h3 { font-size: 28px; font-weight: 600; margin: 24px 0 16px; color: var(--accent); }
+    .slide p { font-size: 20px; line-height: 1.6; margin: 12px 0; }
+    .slide ul { font-size: 20px; line-height: 1.8; margin: 12px 0; padding-left: 30px; }
+    .slide .footer { position: absolute; bottom: 40px; left: 80px; right: 80px; font-size: 14px; color: var(--muted); border-top: 1px solid var(--border); padding-top: 12px; }
+    .slide .metric-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin: 24px 0; }
+    .slide .metric-box { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 24px; text-align: center; }
+    .slide .metric-box .number { font-size: 48px; font-weight: 700; color: var(--accent); margin: 8px 0; }
+    .slide .metric-box .label { font-size: 16px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    .slide .status-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin: 24px 0; }
+    .slide .status-item { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 16px; display: flex; justify-content: space-between; align-items: center; }
+    .slide .status-item .status-label { font-size: 18px; }
+    .slide .status-item .status-value { font-size: 24px; font-weight: 700; }
+    .slide-nav { position: fixed; top: 20px; right: 20px; z-index: 10000; display: flex; gap: 12px; }
+    .slide-nav button { background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+    .slide-nav button:hover { background: var(--panel-2); }
+    @media print {
+      .slide-nav { display: none; }
+      .slide { page-break-after: always; }
+    }
   </style>
 </head>
 <body>
@@ -144,6 +170,7 @@
           <input id="allFilesInput" type="file" multiple accept=".xls,.htm,.html,.xml,.csv" />
         </label>
         <button id="exportHtmlBtn" class="btn" title="Download a clean standalone HTML snapshot">Export Report HTML</button>
+        <button id="generateSlidesBtn" class="btn" title="Generate Testing Kick-Off Slides">Generate Kick-Off Slides</button>
       </div>
     </div>
 
@@ -183,6 +210,9 @@
       <summary><div class="empty">Load Production Defects xls/csv to populate the Production Defects section.</div></summary>
     </details>
   </div>
+
+  <!-- Slide deck container -->
+  <div id="slideDeck" class="slide-deck"></div>
 
   <script>
     const $ = (s, r=document) => r.querySelector(s);
@@ -1867,8 +1897,318 @@
       document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
     }
 
+    // Generate Testing Kick-Off slides
+    function generateKickOffSlides() {
+      const relName = releaseRow?.releaseName || 'Release';
+      const relNum = releaseRow?.releaseNumber || '';
+      const relStatus = releaseRow?.status || '';
+      const plannedStart = releaseRow?.plannedStart || '';
+      const plannedEnd = releaseRow?.plannedEnd || '';
+      
+      // Gather metrics
+      const totalStories = storiesRows.length;
+      const totalTCs = testCaseRows.length;
+      const totalExecs = testExecRows.length;
+      const totalDefects = defectsRows.length;
+      const totalProdDef = prodDefRows.length;
+
+      // Test execution stats
+      const teNorm = s => String(s || '').toLowerCase();
+      const tePassed = testExecRows.filter(r => teNorm(r.status).includes('passed')).length;
+      const teFailed = testExecRows.filter(r => teNorm(r.status).includes('failed')).length;
+      const teInProg = testExecRows.filter(r => /(in prog|progress)/.test(teNorm(r.status))).length;
+      const teNotStarted = testExecRows.filter(r => teNorm(r.status).includes('not started')).length;
+      const passRate = totalExecs > 0 ? Math.round((tePassed / totalExecs) * 100) : 0;
+
+      // Defect stats
+      const isClosed = s => /(closed|resolved|done|solved)/i.test(s || '');
+      const defOpen = defectsRows.filter(r => !isClosed(r.status)).length;
+      const defClosed = defectsRows.filter(r => isClosed(r.status)).length;
+      const defCritical = defectsRows.filter(r => /^critical$/i.test(String(r.severity || ''))).length;
+      const defHigh = defectsRows.filter(r => /^high$/i.test(String(r.severity || ''))).length;
+
+      // Story stats
+      const storyStatuses = {};
+      storiesRows.forEach(r => {
+        const status = r.status || 'Unknown';
+        storyStatuses[status] = (storyStatuses[status] || 0) + 1;
+      });
+
+      const now = new Date();
+      const dateStr = now.toLocaleDateString();
+
+      const slides = [];
+
+      // Slide 1: Title
+      slides.push(`
+        <div class="slide">
+          <h1>Testing Kick-Off</h1>
+          <h2>${esc(relName)}</h2>
+          ${relNum ? `<p style="font-size: 24px; color: var(--muted);">Release Number: ${esc(relNum)}</p>` : ''}
+          ${relStatus ? `<p style="font-size: 24px;"><span class="chip ${statusClass(relStatus)}">${esc(relStatus)}</span></p>` : ''}
+          <div class="footer">Generated on ${dateStr}</div>
+        </div>
+      `);
+
+      // Slide 2: Release Overview
+      slides.push(`
+        <div class="slide">
+          <h2>Release Overview</h2>
+          <div class="metric-grid">
+            <div class="metric-box">
+              <div class="label">User Stories</div>
+              <div class="number">${totalStories}</div>
+            </div>
+            <div class="metric-box">
+              <div class="label">Test Cases</div>
+              <div class="number">${totalTCs}</div>
+            </div>
+            <div class="metric-box">
+              <div class="label">Test Executions</div>
+              <div class="number">${totalExecs}</div>
+            </div>
+          </div>
+          <h3>Timeline</h3>
+          <ul>
+            ${plannedStart ? `<li><strong>Planned Start:</strong> ${esc(plannedStart)}</li>` : ''}
+            ${plannedEnd ? `<li><strong>Planned End:</strong> ${esc(plannedEnd)}</li>` : ''}
+            ${releaseRow?.actualStart ? `<li><strong>Actual Start:</strong> ${esc(releaseRow.actualStart)}</li>` : ''}
+          </ul>
+          <div class="footer">${esc(relName)} • ${dateStr}</div>
+        </div>
+      `);
+
+      // Slide 3: Test Execution Status
+      slides.push(`
+        <div class="slide">
+          <h2>Test Execution Status</h2>
+          <div class="metric-grid">
+            <div class="metric-box">
+              <div class="label">Total Executions</div>
+              <div class="number">${totalExecs}</div>
+            </div>
+            <div class="metric-box">
+              <div class="label">Pass Rate</div>
+              <div class="number" style="color: ${passRate >= 80 ? COLORS.ok : passRate >= 60 ? COLORS.warn : COLORS.bad}">${passRate}%</div>
+            </div>
+            <div class="metric-box">
+              <div class="label">Failed</div>
+              <div class="number" style="color: ${COLORS.bad}">${teFailed}</div>
+            </div>
+          </div>
+          <div class="status-grid">
+            <div class="status-item">
+              <span class="status-label">Passed</span>
+              <span class="status-value" style="color: ${COLORS.ok}">${tePassed}</span>
+            </div>
+            <div class="status-item">
+              <span class="status-label">Failed</span>
+              <span class="status-value" style="color: ${COLORS.bad}">${teFailed}</span>
+            </div>
+            <div class="status-item">
+              <span class="status-label">In Progress</span>
+              <span class="status-value" style="color: ${COLORS.warn}">${teInProg}</span>
+            </div>
+            <div class="status-item">
+              <span class="status-label">Not Started</span>
+              <span class="status-value" style="color: ${COLORS.accent}">${teNotStarted}</span>
+            </div>
+          </div>
+          <div class="footer">${esc(relName)} • ${dateStr}</div>
+        </div>
+      `);
+
+      // Slide 4: Defect Summary
+      slides.push(`
+        <div class="slide">
+          <h2>Defect Summary</h2>
+          <div class="metric-grid">
+            <div class="metric-box">
+              <div class="label">Total Defects</div>
+              <div class="number">${totalDefects}</div>
+            </div>
+            <div class="metric-box">
+              <div class="label">Open Defects</div>
+              <div class="number" style="color: ${COLORS.warn}">${defOpen}</div>
+            </div>
+            <div class="metric-box">
+              <div class="label">Critical + High</div>
+              <div class="number" style="color: ${COLORS.bad}">${defCritical + defHigh}</div>
+            </div>
+          </div>
+          <h3>By Status</h3>
+          <div class="status-grid">
+            <div class="status-item">
+              <span class="status-label">Open</span>
+              <span class="status-value" style="color: ${COLORS.warn}">${defOpen}</span>
+            </div>
+            <div class="status-item">
+              <span class="status-label">Closed</span>
+              <span class="status-value" style="color: ${COLORS.ok}">${defClosed}</span>
+            </div>
+            <div class="status-item">
+              <span class="status-label">Critical</span>
+              <span class="status-value" style="color: ${COLORS.bad}">${defCritical}</span>
+            </div>
+            <div class="status-item">
+              <span class="status-label">High</span>
+              <span class="status-value" style="color: ${COLORS.bad}">${defHigh}</span>
+            </div>
+          </div>
+          <div class="footer">${esc(relName)} • ${dateStr}</div>
+        </div>
+      `);
+
+      // Slide 5: User Stories Progress
+      const topStatuses = Object.entries(storyStatuses).sort((a, b) => b[1] - a[1]).slice(0, 6);
+      slides.push(`
+        <div class="slide">
+          <h2>User Stories Progress</h2>
+          <div class="metric-grid">
+            <div class="metric-box">
+              <div class="label">Total Stories</div>
+              <div class="number">${totalStories}</div>
+            </div>
+            <div class="metric-box">
+              <div class="label">Avg Test Cases/Story</div>
+              <div class="number">${totalStories > 0 ? (totalTCs / totalStories).toFixed(1) : '0'}</div>
+            </div>
+            <div class="metric-box">
+              <div class="label">Total Defects</div>
+              <div class="number">${totalDefects}</div>
+            </div>
+          </div>
+          <h3>Stories by Status</h3>
+          <div class="status-grid">
+            ${topStatuses.map(([status, count]) => `
+              <div class="status-item">
+                <span class="status-label">${esc(status)}</span>
+                <span class="status-value">${count}</span>
+              </div>
+            `).join('')}
+          </div>
+          <div class="footer">${esc(relName)} • ${dateStr}</div>
+        </div>
+      `);
+
+      // Slide 6: Key Risks & Recommendations
+      const risks = [];
+      if (defOpen > totalDefects * 0.5) risks.push(`High number of open defects (${defOpen} / ${totalDefects})`);
+      if (defCritical + defHigh > 0) risks.push(`${defCritical + defHigh} Critical/High severity defects`);
+      if (passRate < 70) risks.push(`Low test pass rate (${passRate}%)`);
+      if (teNotStarted > totalExecs * 0.3) risks.push(`Many test executions not started (${teNotStarted})`);
+      if (totalStories > 0 && totalTCs / totalStories < 2) risks.push(`Low test coverage (avg ${(totalTCs / totalStories).toFixed(1)} TCs/story)`);
+
+      slides.push(`
+        <div class="slide">
+          <h2>Key Risks & Recommendations</h2>
+          <h3>Identified Risks</h3>
+          <ul>
+            ${risks.length > 0 ? risks.map(r => `<li>${esc(r)}</li>`).join('') : '<li>No major risks identified</li>'}
+          </ul>
+          <h3>Recommendations</h3>
+          <ul>
+            ${defOpen > 0 ? '<li>Prioritize closure of open defects, especially Critical/High severity</li>' : ''}
+            ${passRate < 80 ? '<li>Focus on improving test pass rate through defect fixes and test refinement</li>' : ''}
+            ${teNotStarted > 0 ? '<li>Accelerate test execution to meet planned timelines</li>' : ''}
+            ${totalStories > totalTCs ? '<li>Increase test coverage for user stories</li>' : ''}
+            <li>Maintain regular status updates and stakeholder communication</li>
+          </ul>
+          <div class="footer">${esc(relName)} • ${dateStr}</div>
+        </div>
+      `);
+
+      // Slide 7: Next Steps
+      slides.push(`
+        <div class="slide">
+          <h2>Next Steps</h2>
+          <ul>
+            <li>Complete remaining test executions (${teNotStarted + teInProg} pending)</li>
+            <li>Address ${defOpen} open defects</li>
+            <li>Conduct daily standup meetings to track progress</li>
+            <li>Review and update test cases based on findings</li>
+            <li>Prepare for UAT and production deployment</li>
+            <li>Document lessons learned and best practices</li>
+          </ul>
+          <h3>Contact Information</h3>
+          <p>${releaseRow?.ownerName ? `<strong>Release Owner:</strong> ${esc(releaseRow.ownerName)}` : ''}</p>
+          <p>${releaseRow?.responsible ? `<strong>Deployment Lead:</strong> ${esc(releaseRow.responsible)}` : ''}</p>
+          <div class="footer">${esc(relName)} • ${dateStr}</div>
+        </div>
+      `);
+
+      return slides.join('');
+    }
+
+    function showSlides() {
+      if (!releaseRow && !storiesRows.length && !testCaseRows.length && !testExecRows.length) {
+        alert('Please load data files before generating slides.');
+        return;
+      }
+
+      const deck = document.getElementById('slideDeck');
+      const slidesHtml = generateKickOffSlides();
+      
+      deck.innerHTML = `
+        <div class="slide-nav">
+          <button onclick="window.print()">Print Slides</button>
+          <button onclick="downloadSlides()">Download HTML</button>
+          <button onclick="closeSlides()">Close</button>
+        </div>
+        ${slidesHtml}
+      `;
+      
+      deck.classList.add('active');
+    }
+
+    function closeSlides() {
+      const deck = document.getElementById('slideDeck');
+      deck.classList.remove('active');
+    }
+
+    function downloadSlides() {
+      const deck = document.getElementById('slideDeck');
+      const slidesContent = deck.innerHTML.replace(/<div class="slide-nav">[\s\S]*?<\/div>/, '');
+      
+      const styleContent = Array.from(document.styleSheets)
+        .map(sheet => {
+          try {
+            return Array.from(sheet.cssRules).map(rule => rule.cssText).join('\n');
+          } catch { return ''; }
+        })
+        .join('\n');
+
+      const htmlContent = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Testing Kick-Off - ${esc(releaseRow?.releaseName || 'Release')}</title>
+  <style>${styleContent}</style>
+  <style>
+    body { margin: 0; padding: 0; }
+    .slide-deck { display: block !important; background: #000; }
+  </style>
+</head>
+<body>
+  <div class="slide-deck active">${slidesContent}</div>
+</body>
+</html>`;
+
+      const name = (releaseRow?.releaseName || 'KickOff').replace(/[\\\/:*?"<>|]/g, '_');
+      const now = new Date(), pad = n => String(n).padStart(2, '0');
+      const ts = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}`;
+      
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([htmlContent], { type: 'text/html;charset=utf-8' }));
+      a.download = `${name}_KickOff_${ts}.html`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+    }
+
     // Wire inputs
     document.getElementById('exportHtmlBtn')?.addEventListener('click', exportReportHtml);
+    document.getElementById('generateSlidesBtn')?.addEventListener('click', showSlides);
     document.getElementById('releaseFileInput')?.addEventListener('change', e => handleReleaseFile(e.target.files?.[0]));
     document.getElementById('storiesFileInput')?.addEventListener('change', e => handleStoriesFile(e.target.files?.[0]));
     document.getElementById('testCasesFileInput')?.addEventListener('change', e => handleTestCasesFile(e.target.files?.[0]));
