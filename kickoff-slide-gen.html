@@ -1,0 +1,623 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Testing Kick-Off Slide Generator</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #0b0c0f;
+      --panel: #12141a;
+      --panel-2: #181b22;
+      --text: #e6e9ef;
+      --muted: #b4b9c3;
+      --accent: #3b82f6;
+      --ok: #16a34a;
+      --warn: #f59e0b;
+      --bad: #ef4444;
+      --border: #2a2f3a;
+    }
+    
+    html, body { margin:0; padding:0; background:var(--bg); color:var(--text); font:14px/1.5 'Segoe UI', Roboto, Arial, sans-serif; }
+    
+    /* Upload Interface */
+    .upload-container { max-width: 900px; margin: 40px auto; padding: 0 20px; }
+    .header { text-align: center; margin-bottom: 40px; }
+    .header h1 { font-size: 32px; font-weight: 700; margin: 0 0 12px; color: var(--accent); }
+    .header p { color: var(--muted); font-size: 16px; }
+    
+    .upload-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .upload-box { background: var(--panel); border: 2px dashed var(--border); border-radius: 12px; padding: 24px; text-align: center; transition: all 0.3s; cursor: pointer; }
+    .upload-box:hover { border-color: var(--accent); background: var(--panel-2); }
+    .upload-box.loaded { border-color: var(--ok); border-style: solid; }
+    .upload-box h3 { margin: 0 0 8px; font-size: 16px; color: var(--text); }
+    .upload-box p { margin: 0; font-size: 12px; color: var(--muted); }
+    .upload-box input { display: none; }
+    .file-icon { font-size: 32px; margin-bottom: 12px; }
+    .status { display: inline-block; margin-top: 8px; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+    .status.ready { background: #0f2117; color: #8ee4a0; border: 1px solid #164a29; }
+    .status.pending { background: #241c10; color: #ffd17a; border: 1px solid #4a3a1c; }
+    
+    .generate-btn { display: block; width: 100%; max-width: 400px; margin: 0 auto; padding: 16px 32px; background: var(--accent); color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: all 0.3s; }
+    .generate-btn:hover { background: #2563eb; transform: translateY(-2px); }
+    .generate-btn:disabled { background: var(--panel-2); color: var(--muted); cursor: not-allowed; transform: none; }
+    
+    /* Slide Deck */
+    .slide-deck { display: none; }
+    .slide-deck.active { display: block; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: #000; z-index: 9999; overflow: auto; }
+    .slide { width: 1024px; height: 768px; margin: 0 auto; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); color: var(--text); padding: 36px 48px; box-sizing: border-box; page-break-after: always; position: relative; display: flex; flex-direction: column; overflow: hidden; }
+    .slide h1 { font-size: 42px; margin: 0 0 10px; color: var(--accent); }
+    .slide h2 { font-size: 28px; margin: 0 0 16px; color: var(--text); }
+    .slide h3 { font-size: 20px; margin: 16px 0 10px; color: var(--accent); }
+    .slide p { font-size: 18px; line-height: 1.6; margin: 12px 0; }
+    .slide ul { font-size: 18px; line-height: 1.8; margin: 12px 0; padding-left: 30px; }
+    .slide li { margin: 8px 0; }
+    .slide .footer { position: absolute; bottom: 40px; left: 80px; right: 80px; font-size: 14px; color: var(--muted); border-top: 1px solid var(--border); padding-top: 12px; display: flex; justify-content: space-between; }
+    
+    .metric-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin: 24px 0; }
+    .metric-box { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 24px; text-align: center; }
+    .metric-box .number { font-size: 48px; font-weight: 700; color: var(--accent); margin: 8px 0; }
+    .metric-box .label { font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    
+    .status-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 12px 0; }
+    .status-item { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px; display: flex; justify-content: space-between; align-items: center; }
+    .status-item .status-label { font-size: 14px; }
+    .status-item .status-value { font-size: 18px; font-weight: 700; }
+    
+    .slide-nav { position: fixed; top: 20px; right: 20px; z-index: 10000; display: flex; gap: 12px; }
+    .slide-nav button { background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; transition: all 0.3s; }
+    .slide-nav button:hover { background: var(--panel-2); transform: translateY(-2px); }
+    
+    .data-table { font-size: 11px; margin: 10px 0; table-layout: fixed; }
+    .data-table th, .data-table td { padding: 4px 6px; }
+    .data-table th:nth-child(1) { width: 120px; } /* Story Number / similar */
+    .data-table th:nth-child(2) { width: 300px; } /* Name columns */
+    .data-table th:nth-child(3), 
+    .data-table th:nth-child(4), 
+    .data-table th:nth-child(5) { width: auto; }
+
+    .chip { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+
+    /* Keep deck scrolling (to move between slides), but slides never scroll inside */
+    .slide-deck.active { overflow: auto; }
+    
+    @media print {
+      .slide-nav { display: none; }
+      .slide { page-break-after: always; }
+    }
+  </style>
+</head>
+<body>
+  <div class="upload-container" id="uploadContainer">
+    <div class="header">
+      <h1>🎯 Testing Kick-Off Slide Generator</h1>
+      <p>Upload your release reports to automatically generate professional kick-off presentation slides</p>
+    </div>
+    
+    <div class="upload-grid">
+      <label class="upload-box" id="releaseBox">
+        <div class="file-icon">📋</div>
+        <h3>Release Information</h3>
+        <p>Upload release report</p>
+        <span class="status pending">Pending</span>
+        <input type="file" id="releaseFile" accept=".xls,.htm,.html,.csv" />
+      </label>
+      
+      <label class="upload-box" id="storiesBox">
+        <div class="file-icon">📝</div>
+        <h3>User Stories</h3>
+        <p>Upload stories report</p>
+        <span class="status pending">Pending</span>
+        <input type="file" id="storiesFile" accept=".xls,.htm,.html,.csv" />
+      </label>
+      
+      <label class="upload-box" id="testCasesBox">
+        <div class="file-icon">✅</div>
+        <h3>Test Cases</h3>
+        <p>Upload test cases report</p>
+        <span class="status pending">Pending</span>
+        <input type="file" id="testCasesFile" accept=".xls,.htm,.html,.csv" />
+      </label>
+      
+      <label class="upload-box" id="testExecBox">
+        <div class="file-icon">🔄</div>
+        <h3>Test Executions</h3>
+        <p>Upload test executions report</p>
+        <span class="status pending">Pending</span>
+        <input type="file" id="testExecFile" accept=".xls,.htm,.html,.csv" />
+      </label>
+      
+      <label class="upload-box" id="defectsBox">
+        <div class="file-icon">🐛</div>
+        <h3>Defects</h3>
+        <p>Upload defects report</p>
+        <span class="status pending">Pending</span>
+        <input type="file" id="defectsFile" accept=".xls,.htm,.html,.csv" />
+      </label>
+      
+      <label class="upload-box" id="prodDefBox">
+        <div class="file-icon">⚠️</div>
+        <h3>Production Defects</h3>
+        <p>Upload production defects report</p>
+        <span class="status pending">Pending</span>
+        <input type="file" id="prodDefFile" accept=".xls,.htm,.html,.csv" />
+      </label>
+    </div>
+    
+    <button class="generate-btn" id="generateBtn" disabled>Generate Kick-Off Slides</button>
+  </div>
+
+  <div id="slideDeck" class="slide-deck"></div>
+
+  <script>
+    // Global data storage
+    const appData = {
+      release: null,
+      stories: [],
+      testCases: [],
+      testExec: [],
+      defects: [],
+      prodDef: []
+    };
+
+    // Header mappings
+    const HEADER_MAP_RELEASE = {
+      'release: release name': 'releaseName',
+      'release: id': 'releaseId',
+      'actual end date': 'actualEnd',
+      'actual start date': 'actualStart',
+      'planned end date': 'plannedEnd',
+      'planned start date': 'plannedStart',
+      'release number': 'releaseNumber',
+      'release status': 'status',
+      'release type': 'type',
+      'release: owner name': 'ownerName',
+      'responsible for deployment': 'responsible',
+      'objectives': 'objectives',
+    };
+
+    const HEADER_MAP_STORIES = {
+      'release name': 'releaseName',
+      'story number': 'storyNumber',
+      'story: story name': 'storyName',
+      'sprint': 'sprint',
+      'story status': 'status',
+      '# total test cases': 'totalTestCases',
+      '#total defects': 'totalDefects',
+    };
+
+    const HEADER_MAP_TESTCASES = {
+      'release name': 'releaseName',
+      'story number': 'storyNumber',
+      'story: story name': 'storyName',
+      'test case number': 'testCaseNumber',
+      'test case: test case name': 'testCaseName',
+      'status': 'status',
+      '# total executions': 'totalExecutions',
+      '# passed executions': 'passedExecutions',
+      '# failed executions': 'failedExecutions',
+    };
+
+    const HEADER_MAP_TESTEXEC = {
+      'release name': 'releaseName',
+      'story name': 'storyName',
+      'test case execution: test case execution #': 'tceNumber',
+      'test case': 'testCaseName',
+      'status': 'status',
+      'assigned to': 'assignedTo',
+    };
+
+    const HEADER_MAP_DEFECTS = {
+      'release name': 'releaseName',
+      'defect number': 'defectNumber',
+      'defect name': 'defectName',
+      'status': 'status',
+      'severity': 'severity',
+    };
+
+    const HEADER_MAP_PRODDEF = {
+      'release: release name': 'releaseName',
+      'production defect: production defect name': 'prodDefectName',
+      'type': 'type',
+      'status': 'status',
+      'impact': 'impact',
+      'urgency': 'urgency',
+      'test case (optional)': 'testCase',
+      'production defect: owner name': 'ownerName',
+    };
+
+    function normalizeHeader(h) {
+      return String(h || '').replace(/^\uFEFF/, '').trim().toLowerCase().replace(/\s+/g, ' ');
+    }
+
+    function parseHtmlTable(html, headerMap) {
+      const sandbox = document.implementation.createHTMLDocument('');
+      sandbox.documentElement.innerHTML = html;
+      const table = sandbox.querySelector('table');
+      if (!table) return [];
+      
+      const rows = Array.from(table.querySelectorAll('tr'));
+      if (!rows.length) return [];
+      
+      const headerCells = rows[0].querySelectorAll('th, td');
+      const headers = Array.from(headerCells).map(th => normalizeHeader(th.textContent));
+      const mapped = headers.map(h => headerMap[h] || h);
+      
+      const data = [];
+      for (let i = 1; i < rows.length; i++) {
+        const cells = rows[i].querySelectorAll('td, th');
+        const rowObj = {};
+        for (let c = 0; c < headers.length; c++) {
+          const key = mapped[c] ?? `col_${c}`;
+          const val = (cells[c]?.textContent || '').trim().replace(/\u00A0/g, ' ');
+          rowObj[key] = val;
+        }
+        data.push(rowObj);
+      }
+      return data;
+    }
+
+    function esc(s) {
+      return String(s ?? '').replace(/[&<>"']/g, ch => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[ch]));
+    }
+
+    // Utility: chunk array into pages
+    function chunk(arr, size) {
+      const pages = [];
+      for (let i = 0; i < arr.length; i += size) pages.push(arr.slice(i, i + size));
+      return pages;
+    }
+
+    function statusClass(status) {
+      const s = (status || '').toLowerCase();
+      if (/(block|fail|failed|cancel|rejected)/.test(s)) return 'bad';
+      if (/(pass|passed|prod|complete|closed|resolved|success|ready)/.test(s)) return 'ok';
+      if (/(plan|draft|not started|in prog|progress|review|awaiting)/.test(s)) return 'warn';
+      return '';
+    }
+
+    // File handlers
+    function handleFile(file, dataKey, headerMap, boxId) {
+      console.log('Handling file:', file.name, 'for', dataKey);
+      
+      const reader = new FileReader();
+      reader.onerror = (e) => {
+        console.error('FileReader error:', e);
+        alert('Error reading file: ' + file.name);
+      };
+      
+      reader.onload = (e) => {
+        try {
+          const text = e.target.result;
+          console.log('File loaded, length:', text.length);
+          
+          const data = parseHtmlTable(text, headerMap);
+          console.log('Parsed data rows:', data.length);
+          
+          if (dataKey === 'release') {
+            appData.release = data[0] || null;
+          } else {
+            appData[dataKey] = data;
+          }
+          
+          const box = document.getElementById(boxId);
+          const status = box.querySelector('.status');
+          box.classList.add('loaded');
+          status.textContent = `✓ ${data.length || 1} records`;
+          status.classList.remove('pending');
+          status.classList.add('ready');
+          
+          checkAllFilesLoaded();
+        } catch (err) {
+          console.error('Error processing file:', err);
+          alert('Error processing file: ' + file.name);
+        }
+      };
+      
+      reader.readAsText(file);
+    }
+
+    function checkAllFilesLoaded() {
+      const hasMinimumData = appData.release !== null;
+      document.getElementById('generateBtn').disabled = !hasMinimumData;
+      console.log('Minimum data loaded:', hasMinimumData);
+    }
+
+    // Event listeners
+    document.getElementById('releaseFile').addEventListener('change', (e) => {
+      console.log('Release file selected');
+      if (e.target.files[0]) handleFile(e.target.files[0], 'release', HEADER_MAP_RELEASE, 'releaseBox');
+    });
+
+    document.getElementById('storiesFile').addEventListener('change', (e) => {
+      console.log('Stories file selected');
+      if (e.target.files[0]) handleFile(e.target.files[0], 'stories', HEADER_MAP_STORIES, 'storiesBox');
+    });
+
+    document.getElementById('testCasesFile').addEventListener('change', (e) => {
+      console.log('Test cases file selected');
+      if (e.target.files[0]) handleFile(e.target.files[0], 'testCases', HEADER_MAP_TESTCASES, 'testCasesBox');
+    });
+
+    document.getElementById('testExecFile').addEventListener('change', (e) => {
+      console.log('Test exec file selected');
+      if (e.target.files[0]) handleFile(e.target.files[0], 'testExec', HEADER_MAP_TESTEXEC, 'testExecBox');
+    });
+
+    document.getElementById('defectsFile').addEventListener('change', (e) => {
+      console.log('Defects file selected');
+      if (e.target.files[0]) handleFile(e.target.files[0], 'defects', HEADER_MAP_DEFECTS, 'defectsBox');
+    });
+
+    document.getElementById('prodDefFile').addEventListener('change', (e) => {
+      console.log('Prod defects file selected');
+      if (e.target.files[0]) handleFile(e.target.files[0], 'prodDef', HEADER_MAP_PRODDEF, 'prodDefBox');
+    });
+
+    // Generate slides
+    document.getElementById('generateBtn').addEventListener('click', generateSlides);
+
+    function generateSlides() {
+      const relName = appData.release?.releaseName || 'Release';
+      const relNum = appData.release?.releaseNumber || '';
+      const relStatus = appData.release?.status || '';
+      const plannedStart = appData.release?.plannedStart || '';
+      const plannedEnd = appData.release?.plannedEnd || '';
+      const actualStart = appData.release?.actualStart || '';
+      const owner = appData.release?.ownerName || '';
+      const responsible = appData.release?.responsible || '';
+      
+      const stories = appData.stories || [];
+      const testCases = appData.testCases || [];
+      const testExecs = appData.testExec || [];
+      const prodDefs = appData.prodDef || [];
+
+      // Build map Story -> Test Case Names for Slide 2
+      const tcByStory = testCases.reduce((m, tc) => {
+        const key = (tc.storyNumber || tc.storyName || '').trim();
+        if (!key) return m;
+        (m[key] ||= []).push(tc.testCaseName || tc.testCaseNumber || '');
+        return m;
+      }, {});
+      
+      const now = new Date();
+      const dateStr = now.toLocaleDateString();
+      const slides = [];
+      
+      // Slide 1: Release Information
+      slides.push(`
+        <div class="slide">
+          <h1>Testing Kick-Off</h1>
+          <h2>${esc(relName)}</h2>
+          ${relNum ? `<p style="font-size: 18px; color: var(--muted); margin-top: 4px;">Release Number: ${esc(relNum)}</p>` : ''}
+          ${relStatus ? `<p style="font-size: 18px; margin-top: 6px;"><span class="chip ${statusClass(relStatus)}">${esc(relStatus)}</span></p>` : ''}
+          
+          <h3 style="margin-top: 20px;">Timeline</h3>
+          <div class="status-grid">
+            ${plannedStart ? `<div class="status-item"><span class="status-label">Planned Start</span><span class="status-value">${esc(plannedStart)}</span></div>` : ''}
+            ${plannedEnd ? `<div class="status-item"><span class="status-label">Planned End</span><span class="status-value">${esc(plannedEnd)}</span></div>` : ''}
+            ${actualStart ? `<div class="status-item"><span class="status-label">Actual Start</span><span class="status-value">${esc(actualStart)}</span></div>` : ''}
+            ${!plannedStart && !plannedEnd && !actualStart ? '<div class="status-item"><span class="status-label" style="color: var(--muted);">No timeline data available</span></div>' : ''}
+          </div>
+
+          <h3 style="margin-top: 14px;">Team</h3>
+          <ul style="margin-top: 6px;">
+            ${owner ? `<li><strong>Release Owner:</strong> ${esc(owner)}</li>` : ''}
+            ${responsible ? `<li><strong>Deployment Lead:</strong> ${esc(responsible)}</li>` : ''}
+            ${!owner && !responsible ? '<li style="color: var(--muted);">No team information available</li>' : ''}
+          </ul>
+          
+          <div class="footer">
+            <span>${esc(relName)} • Release Info</span>
+            <span>${dateStr}</span>
+          </div>
+        </div>
+      `);
+      
+      // Limits per slide (compact)
+      const MAX_ROWS_STORIES = 18;
+      const MAX_ROWS_TEST = 14;
+      const MAX_ROWS_PRODDEF = 18;
+
+      // Slide 2: User Stories (paginated)
+      const storyRows = stories.map(s => {
+        const key = (s.storyNumber || s.storyName || '').trim();
+        const names = (tcByStory[key] || []).filter(Boolean);
+        const display = names.length
+          ? (names.slice(0, 2).join(' | ') + (names.length > 2 ? ` (+${names.length - 2})` : ''))
+          : '-';
+        return {
+          storyNumber: s.storyNumber || '',
+          storyName: s.storyName || '',
+          status: s.status || '',
+          assignee: s.assignee || '',
+          testCaseNames: display
+        };
+      });
+
+      const storyPages = chunk(storyRows, MAX_ROWS_STORIES);
+      storyPages.forEach((page, idx) => {
+        const pageTotal = storyPages.length;
+        const storiesTable = `
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Story Number</th>
+                <th>Story Name</th>
+                <th>Status</th>
+                <th>Assignee</th>
+                <th>Test Case Name(s)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${page.map(s => `
+                <tr>
+                  <td>${esc(s.storyNumber)}</td>
+                  <td style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${esc(s.storyName)}</td>
+                  <td><span class="chip ${statusClass(s.status)}">${esc(s.status)}</span></td>
+                  <td>${esc(s.assignee)}</td>
+                  <td style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${esc(s.testCaseNames)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+        slides.push(`
+          <div class="slide">
+            <h2>User Stories</h2>
+            ${storiesTable}
+            <div class="footer">
+              <span>${esc(relName)} • User Stories • Page ${idx + 1} of ${pageTotal}</span>
+              <span>${dateStr}</span>
+            </div>
+          </div>
+        `);
+      });
+      
+      // Slide 3: Test Cases & Test Executions (paginated)
+      const testRows = testCases.map(tc => {
+        const exec = testExecs.find(e =>
+          (e.testCaseName || '').trim().toLowerCase() === (tc.testCaseName || '').trim().toLowerCase()
+        );
+        return {
+          testCaseName: tc.testCaseName || '',
+          tcStatus: tc.status || '',
+          execNum: exec?.tceNumber || '-',
+          execStatus: exec?.status || '-',
+          assignee: exec?.assignedTo || '-'
+        };
+      });
+
+      const testPages = chunk(testRows, MAX_ROWS_TEST);
+      testPages.forEach((page, idx) => {
+        const pageTotal = testPages.length;
+        const testTable = `
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Test Case Name</th>
+                <th>TC Status</th>
+                <th>Execution #</th>
+                <th>Exec Status</th>
+                <th>Assignee</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${page.map(r => `
+                <tr>
+                  <td style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${esc(r.testCaseName)}</td>
+                  <td><span class="chip ${statusClass(r.tcStatus)}">${esc(r.tcStatus)}</span></td>
+                  <td>${esc(r.execNum)}</td>
+                  <td>${r.execStatus !== '-' ? `<span class="chip ${statusClass(r.execStatus)}">${esc(r.execStatus)}</span>` : '-'}</td>
+                  <td>${esc(r.assignee)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+        slides.push(`
+          <div class="slide">
+            <h2>Test Cases & Test Executions</h2>
+            ${testTable}
+            <div class="footer">
+              <span>${esc(relName)} • Tests • Page ${idx + 1} of ${pageTotal}</span>
+              <span>${dateStr}</span>
+            </div>
+          </div>
+        `);
+      });
+      
+      // Slide 4: Production Defects (paginated)
+      const prodRows = prodDefs.map(pd => ({
+        name: pd.prodDefectName || '',
+        type: pd.type || '',
+        status: pd.status || '',
+        testCase: pd.testCase || '-',
+        owner: pd.ownerName || ''
+      }));
+
+      const prodPages = chunk(prodRows, MAX_ROWS_PRODDEF);
+      prodPages.forEach((page, idx) => {
+        const pageTotal = prodPages.length;
+        const prodTable = `
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Prod Defect Name</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Test Case</th>
+                <th>Owner</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${page.map(pd => `
+                <tr>
+                  <td style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${esc(pd.name)}</td>
+                  <td>${esc(pd.type)}</td>
+                  <td><span class="chip ${statusClass(pd.status)}">${esc(pd.status)}</span></td>
+                  <td style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${esc(pd.testCase)}</td>
+                  <td>${esc(pd.owner)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+        slides.push(`
+          <div class="slide">
+            <h2>Production Defects</h2>
+            ${prodTable}
+            <div class="footer">
+              <span>${esc(relName)} • Prod Defects • Page ${idx + 1} of ${pageTotal}</span>
+              <span>${dateStr}</span>
+            </div>
+          </div>
+        `);
+      });
+      
+      showSlides(slides.join(''));
+    }
+
+    function showSlides(slidesHtml) {
+      const deck = document.getElementById('slideDeck');
+      deck.innerHTML = `
+        <div class="slide-nav">
+          <button onclick="window.print()">Print Slides</button>
+          <button onclick="downloadSlides()">Download HTML</button>
+          <button onclick="closeSlides()">Close</button>
+        </div>
+        ${slidesHtml}
+      `;
+      deck.classList.add('active');
+      document.getElementById('uploadContainer').style.display = 'none';
+    }
+
+    function closeSlides() {
+      document.getElementById('slideDeck').classList.remove('active');
+      document.getElementById('uploadContainer').style.display = 'block';
+    }
+
+    function downloadSlides() {
+      const deck = document.getElementById('slideDeck');
+      const slidesContent = deck.innerHTML.replace(/<div class="slide-nav">[\s\S]*?<\/div>/, '');
+      const css = document.querySelector('style').textContent;
+
+      const htmlContent = '<!doctype html>\n<html lang="en">\n<head>\n  <meta charset="utf-8" />\n  <title>Testing Kick-Off - ' + esc(appData.release?.releaseName || 'Release') + '</title>\n  <style>' + css + '</style>\n  <style>\n    body { margin: 0; padding: 0; }\n    .slide-deck { display: block !important; background: #000; }\n  </style>\n</head>\n<body>\n  <div class="slide-deck active">' + slidesContent + '</div>\n</body>\n</html>';
+
+      const name = (appData.release?.releaseName || 'KickOff').replace(/[\\\/:*?"<>|]/g, '_');
+      const now = new Date();
+      const pad = n => String(n).padStart(2, '0');
+      const ts = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}`;
+      
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([htmlContent], { type: 'text/html;charset=utf-8' }));
+      a.download = `${name}_KickOff_${ts}.html`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+    }
+  </script>
+</body>
+</html>

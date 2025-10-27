@@ -1904,61 +1904,174 @@
       const relStatus = releaseRow?.status || '';
       const plannedStart = releaseRow?.plannedStart || '';
       const plannedEnd = releaseRow?.plannedEnd || '';
+      const actualStart = releaseRow?.actualStart || '';
+      const actualEnd = releaseRow?.actualEnd || '';
+      const owner = releaseRow?.ownerName || '';
+      const responsible = releaseRow?.responsible || '';
       
-      // Gather metrics
-      const totalStories = storiesRows.length;
-      const totalTCs = testCaseRows.length;
-      const totalExecs = testExecRows.length;
-      const totalDefects = defectsRows.length;
-      const totalProdDef = prodDefRows.length;
+      // Filter by current release
+      const relNameLower = relName.trim().toLowerCase();
+      const filterByRelease = (rows, key='releaseName') =>
+        relNameLower && rows ? rows.filter(r => (r[key] || '').trim().toLowerCase() === relNameLower) : (rows || []);
 
-      // Test execution stats
+      const stories = filterByRelease(storiesRows);
+      const testCases = filterByRelease(testCaseRows);
+      const testExecs = filterByRelease(testExecRows);
+      const defects = filterByRelease(defectsRows);
+      const prodDefs = filterByRelease(prodDefRows);
+
+      // User Stories stats
+      const totalStories = stories.length;
+      const storiesReady = stories.filter(r => /ready for testing/i.test(r.status)).length;
+      const storiesInProg = stories.filter(r => /(in prog|progress)/i.test(r.status)).length;
+      const storiesDone = stories.filter(r => /(done|closed|completed)/i.test(r.status)).length;
+      const totalStoriesTC = stories.reduce((a, r) => a + num(r.totalTestCases), 0);
+      const totalStoriesDef = stories.reduce((a, r) => a + num(r.totalDefects), 0);
+
+      // Test stats
+      const totalTCs = testCases.length;
+      const totalExecs = testExecs.length;
       const teNorm = s => String(s || '').toLowerCase();
-      const tePassed = testExecRows.filter(r => teNorm(r.status).includes('passed')).length;
-      const teFailed = testExecRows.filter(r => teNorm(r.status).includes('failed')).length;
-      const teInProg = testExecRows.filter(r => /(in prog|progress)/.test(teNorm(r.status))).length;
-      const teNotStarted = testExecRows.filter(r => teNorm(r.status).includes('not started')).length;
+      const tePassed = testExecs.filter(r => teNorm(r.status).includes('passed')).length;
+      const teFailed = testExecs.filter(r => teNorm(r.status).includes('failed')).length;
+      const teInProg = testExecs.filter(r => /(in prog|progress)/.test(teNorm(r.status))).length;
+      const teNotStarted = testExecs.filter(r => teNorm(r.status).includes('not started')).length;
       const passRate = totalExecs > 0 ? Math.round((tePassed / totalExecs) * 100) : 0;
 
       // Defect stats
+      const totalDefects = defects.length;
       const isClosed = s => /(closed|resolved|done|solved)/i.test(s || '');
-      const defOpen = defectsRows.filter(r => !isClosed(r.status)).length;
-      const defClosed = defectsRows.filter(r => isClosed(r.status)).length;
-      const defCritical = defectsRows.filter(r => /^critical$/i.test(String(r.severity || ''))).length;
-      const defHigh = defectsRows.filter(r => /^high$/i.test(String(r.severity || ''))).length;
+      const defOpen = defects.filter(r => !isClosed(r.status)).length;
+      const defClosed = defects.filter(r => isClosed(r.status)).length;
+      const defCritical = defects.filter(r => /^critical$/i.test(String(r.severity || ''))).length;
+      const defHigh = defects.filter(r => /^high$/i.test(String(r.severity || ''))).length;
 
-      // Story stats
-      const storyStatuses = {};
-      storiesRows.forEach(r => {
-        const status = r.status || 'Unknown';
-        storyStatuses[status] = (storyStatuses[status] || 0) + 1;
-      });
+      // Production Defects stats
+      const totalProdDef = prodDefs.length;
+      const prodDefOpen = prodDefs.filter(r => !isClosed(r.status)).length;
+      const prodDefClosed = prodDefs.filter(r => isClosed(r.status)).length;
+      const prodDefHigh = prodDefs.filter(r => /^high$/i.test(r.impact)).length;
+      const prodDefMed = prodDefs.filter(r => /^medium$/i.test(r.impact)).length;
+      const prodDefLow = prodDefs.filter(r => /^low$/i.test(r.impact)).length;
 
       const now = new Date();
       const dateStr = now.toLocaleDateString();
 
       const slides = [];
 
-      // Slide 1: Title
+      // Slide 1: Release Information
       slides.push(`
         <div class="slide">
           <h1>Testing Kick-Off</h1>
           <h2>${esc(relName)}</h2>
-          ${relNum ? `<p style="font-size: 24px; color: var(--muted);">Release Number: ${esc(relNum)}</p>` : ''}
-          ${relStatus ? `<p style="font-size: 24px;"><span class="chip ${statusClass(relStatus)}">${esc(relStatus)}</span></p>` : ''}
-          <div class="footer">Generated on ${dateStr}</div>
+          ${relNum ? `<p style="font-size: 22px; color: var(--muted); margin-top: 8px;">Release Number: ${esc(relNum)}</p>` : ''}
+          ${relStatus ? `<p style="font-size: 22px; margin-top: 12px;"><span class="chip ${statusClass(relStatus)}" style="font-size: 18px; padding: 6px 14px;">${esc(relStatus)}</span></p>` : ''}
+          
+          <h3 style="margin-top: 40px;">Timeline</h3>
+          <div class="status-grid">
+            ${plannedStart ? `
+              <div class="status-item">
+                <span class="status-label">Planned Start</span>
+                <span class="status-value" style="font-size: 18px;">${esc(plannedStart)}</span>
+              </div>
+            ` : ''}
+            ${plannedEnd ? `
+              <div class="status-item">
+                <span class="status-label">Planned End</span>
+                <span class="status-value" style="font-size: 18px;">${esc(plannedEnd)}</span>
+              </div>
+            ` : ''}
+            ${actualStart ? `
+              <div class="status-item">
+                <span class="status-label">Actual Start</span>
+                <span class="status-value" style="font-size: 18px;">${esc(actualStart)}</span>
+              </div>
+            ` : ''}
+            ${actualEnd ? `
+              <div class="status-item">
+                <span class="status-label">Actual End</span>
+                <span class="status-value" style="font-size: 18px;">${esc(actualEnd)}</span>
+              </div>
+            ` : ''}
+          </div>
+
+          <h3 style="margin-top: 30px;">Team</h3>
+          <ul>
+            ${owner ? `<li><strong>Release Owner:</strong> ${esc(owner)}</li>` : ''}
+            ${responsible ? `<li><strong>Deployment Lead:</strong> ${esc(responsible)}</li>` : ''}
+          </ul>
+          
+          <div class="footer">${esc(relName)} • Slide 1 of 4 • ${dateStr}</div>
         </div>
       `);
 
-      // Slide 2: Release Overview
+      // Slide 2: User Stories
+      const topStoriesByStatus = {};
+      stories.forEach(r => {
+        const status = r.status || 'Unknown';
+        topStoriesByStatus[status] = (topStoriesByStatus[status] || 0) + 1;
+      });
+      const topStatuses = Object.entries(topStoriesByStatus)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 6);
+
       slides.push(`
         <div class="slide">
-          <h2>Release Overview</h2>
+          <h2>User Stories</h2>
+          
           <div class="metric-grid">
             <div class="metric-box">
-              <div class="label">User Stories</div>
+              <div class="label">Total Stories</div>
               <div class="number">${totalStories}</div>
             </div>
+            <div class="metric-box">
+              <div class="label">Total Test Cases</div>
+              <div class="number">${totalStoriesTC}</div>
+            </div>
+            <div class="metric-box">
+              <div class="label">Total Defects</div>
+              <div class="number">${totalStoriesDef}</div>
+            </div>
+          </div>
+
+          <h3>Stories by Status</h3>
+          <div class="status-grid">
+            ${storiesDone > 0 ? `
+              <div class="status-item">
+                <span class="status-label">Done</span>
+                <span class="status-value" style="color: ${COLORS.ok}">${storiesDone}</span>
+              </div>
+            ` : ''}
+            ${storiesReady > 0 ? `
+              <div class="status-item">
+                <span class="status-label">Ready for Testing</span>
+                <span class="status-value" style="color: ${COLORS.ok}">${storiesReady}</span>
+              </div>
+            ` : ''}
+            ${storiesInProg > 0 ? `
+              <div class="status-item">
+                <span class="status-label">In Progress</span>
+                <span class="status-value" style="color: ${COLORS.warn}">${storiesInProg}</span>
+              </div>
+            ` : ''}
+            ${topStatuses.slice(0, 3).map(([status, count]) => `
+              <div class="status-item">
+                <span class="status-label">${esc(status)}</span>
+                <span class="status-value">${count}</span>
+              </div>
+            `).join('')}
+          </div>
+
+          <div class="footer">${esc(relName)} • Slide 2 of 4 • ${dateStr}</div>
+        </div>
+      `);
+
+      // Slide 3: Test Cases and Test Executions
+      slides.push(`
+        <div class="slide">
+          <h2>Test Cases & Test Executions</h2>
+          
+          <div class="metric-grid">
             <div class="metric-box">
               <div class="label">Test Cases</div>
               <div class="number">${totalTCs}</div>
@@ -1967,35 +2080,13 @@
               <div class="label">Test Executions</div>
               <div class="number">${totalExecs}</div>
             </div>
-          </div>
-          <h3>Timeline</h3>
-          <ul>
-            ${plannedStart ? `<li><strong>Planned Start:</strong> ${esc(plannedStart)}</li>` : ''}
-            ${plannedEnd ? `<li><strong>Planned End:</strong> ${esc(plannedEnd)}</li>` : ''}
-            ${releaseRow?.actualStart ? `<li><strong>Actual Start:</strong> ${esc(releaseRow.actualStart)}</li>` : ''}
-          </ul>
-          <div class="footer">${esc(relName)} • ${dateStr}</div>
-        </div>
-      `);
-
-      // Slide 3: Test Execution Status
-      slides.push(`
-        <div class="slide">
-          <h2>Test Execution Status</h2>
-          <div class="metric-grid">
-            <div class="metric-box">
-              <div class="label">Total Executions</div>
-              <div class="number">${totalExecs}</div>
-            </div>
             <div class="metric-box">
               <div class="label">Pass Rate</div>
               <div class="number" style="color: ${passRate >= 80 ? COLORS.ok : passRate >= 60 ? COLORS.warn : COLORS.bad}">${passRate}%</div>
             </div>
-            <div class="metric-box">
-              <div class="label">Failed</div>
-              <div class="number" style="color: ${COLORS.bad}">${teFailed}</div>
-            </div>
           </div>
+
+          <h3>Execution Status</h3>
           <div class="status-grid">
             <div class="status-item">
               <span class="status-label">Passed</span>
@@ -2014,37 +2105,16 @@
               <span class="status-value" style="color: ${COLORS.accent}">${teNotStarted}</span>
             </div>
           </div>
-          <div class="footer">${esc(relName)} • ${dateStr}</div>
-        </div>
-      `);
 
-      // Slide 4: Defect Summary
-      slides.push(`
-        <div class="slide">
-          <h2>Defect Summary</h2>
-          <div class="metric-grid">
-            <div class="metric-box">
-              <div class="label">Total Defects</div>
-              <div class="number">${totalDefects}</div>
-            </div>
-            <div class="metric-box">
-              <div class="label">Open Defects</div>
-              <div class="number" style="color: ${COLORS.warn}">${defOpen}</div>
-            </div>
-            <div class="metric-box">
-              <div class="label">Critical + High</div>
-              <div class="number" style="color: ${COLORS.bad}">${defCritical + defHigh}</div>
-            </div>
-          </div>
-          <h3>By Status</h3>
+          <h3>Defects</h3>
           <div class="status-grid">
+            <div class="status-item">
+              <span class="status-label">Total Defects</span>
+              <span class="status-value">${totalDefects}</span>
+            </div>
             <div class="status-item">
               <span class="status-label">Open</span>
               <span class="status-value" style="color: ${COLORS.warn}">${defOpen}</span>
-            </div>
-            <div class="status-item">
-              <span class="status-label">Closed</span>
-              <span class="status-value" style="color: ${COLORS.ok}">${defClosed}</span>
             </div>
             <div class="status-item">
               <span class="status-label">Critical</span>
@@ -2055,85 +2125,57 @@
               <span class="status-value" style="color: ${COLORS.bad}">${defHigh}</span>
             </div>
           </div>
-          <div class="footer">${esc(relName)} • ${dateStr}</div>
+
+          <div class="footer">${esc(relName)} • Slide 3 of 4 • ${dateStr}</div>
         </div>
       `);
 
-      // Slide 5: User Stories Progress
-      const topStatuses = Object.entries(storyStatuses).sort((a, b) => b[1] - a[1]).slice(0, 6);
+      // Slide 4: Production Defects
       slides.push(`
         <div class="slide">
-          <h2>User Stories Progress</h2>
+          <h2>Production Defects</h2>
+          
           <div class="metric-grid">
             <div class="metric-box">
-              <div class="label">Total Stories</div>
-              <div class="number">${totalStories}</div>
+              <div class="label">Total Prod Defects</div>
+              <div class="number">${totalProdDef}</div>
             </div>
             <div class="metric-box">
-              <div class="label">Avg Test Cases/Story</div>
-              <div class="number">${totalStories > 0 ? (totalTCs / totalStories).toFixed(1) : '0'}</div>
+              <div class="label">Open</div>
+              <div class="number" style="color: ${COLORS.warn}">${prodDefOpen}</div>
             </div>
             <div class="metric-box">
-              <div class="label">Total Defects</div>
-              <div class="number">${totalDefects}</div>
+              <div class="label">Closed</div>
+              <div class="number" style="color: ${COLORS.ok}">${prodDefClosed}</div>
             </div>
           </div>
-          <h3>Stories by Status</h3>
+
+          <h3>By Impact Level</h3>
           <div class="status-grid">
-            ${topStatuses.map(([status, count]) => `
-              <div class="status-item">
-                <span class="status-label">${esc(status)}</span>
-                <span class="status-value">${count}</span>
-              </div>
-            `).join('')}
+            <div class="status-item">
+              <span class="status-label">High Impact</span>
+              <span class="status-value" style="color: ${COLORS.bad}">${prodDefHigh}</span>
+            </div>
+            <div class="status-item">
+              <span class="status-label">Medium Impact</span>
+              <span class="status-value" style="color: ${COLORS.warn}">${prodDefMed}</span>
+            </div>
+            <div class="status-item">
+              <span class="status-label">Low Impact</span>
+              <span class="status-value" style="color: ${COLORS.ok}">${prodDefLow}</span>
+            </div>
           </div>
-          <div class="footer">${esc(relName)} • ${dateStr}</div>
-        </div>
-      `);
 
-      // Slide 6: Key Risks & Recommendations
-      const risks = [];
-      if (defOpen > totalDefects * 0.5) risks.push(`High number of open defects (${defOpen} / ${totalDefects})`);
-      if (defCritical + defHigh > 0) risks.push(`${defCritical + defHigh} Critical/High severity defects`);
-      if (passRate < 70) risks.push(`Low test pass rate (${passRate}%)`);
-      if (teNotStarted > totalExecs * 0.3) risks.push(`Many test executions not started (${teNotStarted})`);
-      if (totalStories > 0 && totalTCs / totalStories < 2) risks.push(`Low test coverage (avg ${(totalTCs / totalStories).toFixed(1)} TCs/story)`);
+          <h3>Key Actions</h3>
+          <ul>
+            ${prodDefOpen > 0 ? `<li>Address ${prodDefOpen} open production defects</li>` : ''}
+            ${prodDefHigh > 0 ? `<li>Prioritize ${prodDefHigh} high-impact defects</li>` : ''}
+            ${totalProdDef === 0 ? '<li>No production defects reported for this release</li>' : ''}
+            <li>Monitor production stability post-deployment</li>
+            <li>Document root causes and prevention measures</li>
+          </ul>
 
-      slides.push(`
-        <div class="slide">
-          <h2>Key Risks & Recommendations</h2>
-          <h3>Identified Risks</h3>
-          <ul>
-            ${risks.length > 0 ? risks.map(r => `<li>${esc(r)}</li>`).join('') : '<li>No major risks identified</li>'}
-          </ul>
-          <h3>Recommendations</h3>
-          <ul>
-            ${defOpen > 0 ? '<li>Prioritize closure of open defects, especially Critical/High severity</li>' : ''}
-            ${passRate < 80 ? '<li>Focus on improving test pass rate through defect fixes and test refinement</li>' : ''}
-            ${teNotStarted > 0 ? '<li>Accelerate test execution to meet planned timelines</li>' : ''}
-            ${totalStories > totalTCs ? '<li>Increase test coverage for user stories</li>' : ''}
-            <li>Maintain regular status updates and stakeholder communication</li>
-          </ul>
-          <div class="footer">${esc(relName)} • ${dateStr}</div>
-        </div>
-      `);
-
-      // Slide 7: Next Steps
-      slides.push(`
-        <div class="slide">
-          <h2>Next Steps</h2>
-          <ul>
-            <li>Complete remaining test executions (${teNotStarted + teInProg} pending)</li>
-            <li>Address ${defOpen} open defects</li>
-            <li>Conduct daily standup meetings to track progress</li>
-            <li>Review and update test cases based on findings</li>
-            <li>Prepare for UAT and production deployment</li>
-            <li>Document lessons learned and best practices</li>
-          </ul>
-          <h3>Contact Information</h3>
-          <p>${releaseRow?.ownerName ? `<strong>Release Owner:</strong> ${esc(releaseRow.ownerName)}` : ''}</p>
-          <p>${releaseRow?.responsible ? `<strong>Deployment Lead:</strong> ${esc(releaseRow.responsible)}` : ''}</p>
-          <div class="footer">${esc(relName)} • ${dateStr}</div>
+          <div class="footer">${esc(relName)} • Slide 4 of 4 • ${dateStr}</div>
         </div>
       `);
 
