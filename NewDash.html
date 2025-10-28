@@ -452,22 +452,30 @@
       const filterByRelease = (rows, key='releaseName') =>
         relName ? (rows || []).filter(r => (r[key] || '').trim().toLowerCase() === relName) : (rows || []);
 
+      // Add: stories filtered
+      const st = filterByRelease(storiesRows);
       const tc = filterByRelease(testCaseRows);
       const te = filterByRelease(testExecRows);
       const df = filterByRelease(defectsRows);
       const pd = filterByRelease(prodDefRows);
 
-      // Remove Test Cases status aggregation (keep only executions)
-      // const tcStatus = { passed:0, failed:0, inprog:0, notstarted:0, other:0 };
-      // for (const r of tc) {
-      //   const s = norm(r.status);
-      //   if (s.includes('passed')) tcStatus.passed++;
-      //   else if (s.includes('failed')) tcStatus.failed++;
-      //   else if (/(in prog|progress)/.test(s)) tcStatus.inprog++;
-      //   else if (s.includes('not started')) tcStatus.notstarted++;
-      //   else tcStatus.other++;
-      // }
-      // const tcPassRate = pctOf(tcStatus.passed, tcStatus.passed + tcStatus.failed);
+      // Add: User Stories — Status breakdown
+      const stStatus = { done:0, ready:0, inprog:0, open:0, other:0 };
+      for (const r of st) {
+        const s = norm(r.status);
+        if (/(done|closed|completed)/.test(s)) stStatus.done++;
+        else if (/ready for testing/.test(s)) stStatus.ready++;
+        else if (/(dev.*in prog|in prog|progress)/.test(s)) stStatus.inprog++;
+        else if (s === 'open' || /(^|\s)open(\s|$)/.test(s)) stStatus.open++;
+        else stStatus.other++;
+      }
+      const stSegments = [
+        { label:'Done', value:stStatus.done, color:COLORS.ok },
+        { label:'Ready for Testing', value:stStatus.ready, color:COLORS.ok },
+        { label:'In Progress', value:stStatus.inprog, color:COLORS.warn },
+        { label:'Open', value:stStatus.open, color:COLORS.accent },
+        { label:'Other', value:stStatus.other, color:COLORS.chip },
+      ];
 
       // Test Executions by status
       const teStatus = { passed:0, failed:0, inprog:0, notstarted:0, other:0 };
@@ -511,8 +519,13 @@
 
       return {
         relName,
-        totals: { tc: tc.length, te: te.length, df: df.length, pd: pd.length },
-        // tcSegments: [ ... ], // removed
+        totals: { 
+          // Add: stories total
+          st: st.length,
+          tc: tc.length, te: te.length, df: df.length, pd: pd.length 
+        },
+        // Add: stories segments
+        stSegments,
         teSegments: [
           { label:'Passed', value:teStatus.passed, color:COLORS.ok },
           { label:'Failed', value:teStatus.failed, color:COLORS.bad },
@@ -1049,6 +1062,7 @@
       if (titleEl) titleEl.textContent = 'Quality Dashboard';
       if (subEl) {
         subEl.innerHTML = `
+          <!-- keep existing summary -->
           <span>TCs: ${data.totals.tc}</span>
           <span>Execs: ${data.totals.te}</span>
           <span>Defects: ${data.totals.df}</span>
@@ -1056,7 +1070,7 @@
         `;
       }
 
-      const totalAll = data.totals.tc + data.totals.te + data.totals.df + data.totals.pd;
+      const totalAll = data.totals.tc + data.totals.te + data.totals.df + data.totals.pd + (data.totals.st || 0);
       const emptyEl = document.getElementById('chartsEmpty');
       if (totalAll === 0) {
         if (emptyEl) emptyEl.style.display = '';
@@ -1069,11 +1083,12 @@
       const cards = [];
       const sumSeg = segs => segs.reduce((a,s)=>a+(s.value||0),0);
 
-      // Removed: Test Cases — Status card
-      // if (sumSeg(data.tcSegments)) {
-      //   cards.push(makeChartCard('Test Cases — Status', data.tcSegments, `${data.tcPassRate}%`, 'Pass rate'));
-      // }
+      // Add: User Stories — Status card first (left of Test Executions)
+      if (sumSeg(data.stSegments)) {
+        cards.push(makeChartCard('User Stories — Status', data.stSegments, String(sumSeg(data.stSegments)), 'Total'));
+      }
 
+      // Existing cards: Test Executions — Status, etc.
       if (sumSeg(data.teSegments)) {
         cards.push(makeChartCard('Test Executions — Status', data.teSegments, `${data.tePassRate}%`, 'Pass rate'));
       }
@@ -1086,10 +1101,6 @@
       if (sumSeg(data.pdImpactSegments)) {
         cards.push(makeChartCard('Prod Defects — Impact', data.pdImpactSegments, String(sumSeg(data.pdImpactSegments)), 'Total'));
       }
-      // Removed: Prod Defects — Urgency chart
-      // if (sumSeg(data.pdUrgSegments)) {
-      //   cards.push(makeChartCard('Prod Defects — Urgency', data.pdUrgSegments, String(sumSeg(data.pdUrgSegments)), 'Total'));
-      // }
 
       let grid = panel.querySelector('.charts-grid');
       if (!grid) {
@@ -1103,7 +1114,6 @@
       renderStoriesAnalytics();
       renderTestsAnalytics();
       renderDefectsAnalytics();
-      // New: render Production Defects analysis right after defects
       renderProdDefAnalytics();
     }
 
