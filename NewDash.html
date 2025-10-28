@@ -517,6 +517,26 @@
         else if (/^medium$/.test(u)) urgMed++; else if (/^low$/.test(u)) urgLow++; else urgOther++;
       }
 
+      // NEW: Prod defects by Type, with-test-case count, and age stats
+      let typeIncident=0, typeCR=0, typeTask=0, typeOther=0;
+      for (const r of pd) {
+        const t = norm(r.type);
+        if (t.includes('incident')) typeIncident++;
+        else if (t.includes('change request')) typeCR++;
+        else if (t.includes('task')) typeTask++;
+        else typeOther++;
+      }
+      const pdTypeSegments = [
+        { label:'Incident', value:typeIncident, color:COLORS.bad },
+        { label:'Change Request', value:typeCR, color:COLORS.accent },
+        { label:'Task', value:typeTask, color:COLORS.ok },
+        { label:'Other', value:typeOther, color:COLORS.chip },
+      ];
+      const pdWithTC = pd.filter(r => String(r.testCase || '').trim()).length;
+      const ages = pd.map(r => num(r.ageDays)).filter(n => Number.isFinite(n) && n >= 0);
+      const pdAgeAvg = ages.length ? Math.round(ages.reduce((a,b)=>a+b,0)/ages.length) : 0;
+      const pdAgeMax = ages.length ? Math.max(...ages) : 0;
+
       return {
         relName,
         totals: { 
@@ -550,6 +570,11 @@
           { label:'Low', value:impactLow, color:COLORS.ok },
           { label:'Other', value:impactOther, color:COLORS.chip },
         ],
+        // NEW: expose PD metrics
+        pdTypeSegments,
+        pdWithTC,
+        pdAgeAvg,
+        pdAgeMax,
         pdUrgSegments: [
           { label:'Immediate', value:urgImmediate, color:'#b91c1c' },
           { label:'High', value:urgHigh, color:COLORS.bad },
@@ -1100,6 +1125,17 @@
       }
       if (sumSeg(data.pdImpactSegments)) {
         cards.push(makeChartCard('Prod Defects — Impact', data.pdImpactSegments, String(sumSeg(data.pdImpactSegments)), 'Total'));
+        // NEW: tile next to Impact
+        if (sumSeg(data.pdTypeSegments)) {
+          cards.push(
+            makeChartCard(
+              'Prod Defects — Type',
+              data.pdTypeSegments,
+              String(data.pdWithTC || 0),
+              `With TC • Avg ${data.pdAgeAvg}d`
+            )
+          );
+        }
       }
 
       let grid = panel.querySelector('.charts-grid');
@@ -2268,9 +2304,6 @@
     document.getElementById('defectsFileInput')?.addEventListener('change', e => handleDefectsFile(e.target.files?.[0]));
     document.getElementById('prodDefFileInput')?.addEventListener('change', e => handleProdDefFile(e.target.files?.[0]));
     document.getElementById('allFilesInput')?.addEventListener('change', e => { handleMultipleFiles(e.target.files); e.target.value=''; });
-
-    // Resize hook
-    window.addEventListener('resize', () => renderChartsDashboard());
   </script>
 </body>
 </html>
